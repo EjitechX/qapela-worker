@@ -88,7 +88,8 @@
   // ── Your Worker's URL and Paystack PUBLIC key (never the secret key —
   // public keys are safe and meant to be used in client-side code). ──
   const API_BASE = "https://capella-api-5c6c.drthankgod08.workers.dev";
-  const PAYSTACK_PUBLIC_KEY = "pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; // <-- put your real Paystack PUBLIC key here
+  let PAYSTACK_PUBLIC_KEY = ""; // loaded from the API (set once in Cloudflare), never hard-coded here
+  fetch(API_BASE + "/public/settings").then(function (r) { return r.json(); }).then(function (d) { PAYSTACK_PUBLIC_KEY = d.paystackPublicKey || ""; }).catch(function () {});
 
   const token = localStorage.getItem("qapela_token");
   if (!token) {
@@ -164,12 +165,13 @@
         <div class="benefit-row"><div class="check-ic"><svg class="ic"><use href="#i-check"/></svg></div>Ability to create and fund business campaigns</div>
         <div class="benefit-row"><div class="check-ic"><svg class="ic"><use href="#i-check"/></svg></div>Wallet, referrals, affiliate and marketplace features</div>
       </div>
-      <p class="fine-print"><svg class="ic"><use href="#i-lock"/></svg>Secure payment via Paystack. This is a one-time account activation payment.</p>
+      <p class="fine-print"><svg class="ic"><use href="#i-lock"/></svg>Secure payment. This is a one-time account activation payment.</p>
       <button class="btn" id="payBtn" onclick="payAndActivate()">Pay ₦${ACTIVATION_FEE.toLocaleString()} to Activate</button>
     `;
   }
 
   window.payAndActivate = function () {
+    if (!PAYSTACK_PUBLIC_KEY) { alert("Payments are temporarily unavailable. Please try again shortly."); return; }
     const payBtn = document.getElementById("payBtn");
     payBtn.disabled = true;
     payBtn.innerHTML = '<span class="spinner"></span> Opening secure checkout…';

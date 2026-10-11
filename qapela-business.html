@@ -209,6 +209,7 @@
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <input type="number" id="add-funds-amount" placeholder="Amount to add (₦)" style="flex:1;min-width:160px;padding:11px 12px;border-radius:10px;border:none;font-size:13.5px;">
             <button class="btn btn-accent" id="btn-add-funds">Add Funds</button>
+            <button class="btn" style="flex-basis:100%;" onclick="window.location.href='qapela-business-refund.html'">Refund to bank</button>
           </div>
         </div>
         <div class="stats">
@@ -250,7 +251,8 @@
 
 <script>
   const API_BASE = "https://capella-api-5c6c.drthankgod08.workers.dev";
-  const PAYSTACK_PUBLIC_KEY = "pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; // <-- your real Paystack PUBLIC key
+  let PAYSTACK_PUBLIC_KEY = ""; // loaded from the API (set once in Cloudflare), never hard-coded here
+  fetch(API_BASE + "/public/settings").then(function (r) { return r.json(); }).then(function (d) { PAYSTACK_PUBLIC_KEY = d.paystackPublicKey || ""; }).catch(function () {});
 
   let currentUser = null;
   let taskCatalogue = [];
@@ -413,6 +415,7 @@
     const amt = Math.floor(parseFloat(amountInput.value));
     if (!amt || amt < 500) { alert("Enter an amount of at least ₦500."); return; }
 
+    if (!PAYSTACK_PUBLIC_KEY) { alert("Payments are temporarily unavailable. Please try again shortly."); return; }
     const btn = document.getElementById("btn-add-funds");
     btn.disabled = true;
     btn.textContent = "Opening secure checkout…";

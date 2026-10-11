@@ -82,7 +82,8 @@
 
 <script>
   const API_BASE = "https://capella-api-5c6c.drthankgod08.workers.dev";
-  const PAYSTACK_PUBLIC_KEY = "pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; // <-- your real Paystack PUBLIC key
+  let PAYSTACK_PUBLIC_KEY = ""; // loaded from the API (set once in Cloudflare), never hard-coded here
+  fetch(API_BASE + "/public/settings").then(function (r) { return r.json(); }).then(function (d) { PAYSTACK_PUBLIC_KEY = d.paystackPublicKey || ""; }).catch(function () {});
 
   let currentUser = null;
   let purchasedSongIds = new Set();
@@ -149,6 +150,7 @@
   }
 
   window.buySong = function (songId, price) {
+    if (!PAYSTACK_PUBLIC_KEY) { alert("Payments are temporarily unavailable. Please try again shortly."); return; }
     const btn = document.getElementById("buy-" + songId);
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Opening secure checkout…';

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Qapela — Withdraw</title>
+<title>Qapela — Refund to bank</title>
 <style>
   :root{
     --primary:#0B5CFF; --secondary:#0E2A6B; --accent:#F5B301; --neutral:#F8FAFF;
@@ -90,16 +90,16 @@
       <span class="back" onclick="history.back()"><svg class="ic"><use href="#i-back"/></svg></span>
       <div class="brand">
         <div class="logo-mark"><img class="qapela-logo-img" src="assets/qapela-logo-icon.png" alt="Qapela mark" style="width:15px;height:15px;"></div>
-        Withdraw
+        Refund to bank
       </div>
     </div>
   </header>
 
   <main>
     <div class="balance-card">
-      <div class="label"><svg class="ic"><use href="#i-wallet"/></svg> Available to Withdraw</div>
+      <div class="label"><svg class="ic"><use href="#i-wallet"/></svg> Refundable now</div>
       <div class="amount" id="availBalance">₦0.00</div>
-      <div class="note">Pending: <span id="pendingBalance">₦0.00</span> · being processed</div>
+      <div class="note" id="heldNote">Wallet balance: <span id="pendingBalance">₦0.00</span></div>
     </div>
 
     <div class="card">
@@ -116,7 +116,7 @@
     </div>
 
     <div class="card">
-      <h2>Amount</h2>
+      <h2>Amount to refund</h2>
       <div class="field">
         <div class="amount-input-wrap">
           <span>₦</span>
@@ -128,12 +128,12 @@
           <button onclick="setPct(1)">Max</button>
         </div>
       </div>
-      <button class="btn" id="wdBtn" onclick="submitWithdrawal()">Request Withdrawal</button>
+      <button class="btn" id="wdBtn" onclick="submitWithdrawal()">Request Refund</button>
       <div id="wdLimits" style="font-size:11.5px; color:var(--muted); margin-top:10px; line-height:1.5;"></div>
       <div id="wdMsg"></div>
     </div>
 
-    <div class="section-head">Withdrawal History</div>
+    <div class="section-head">Refund History</div>
     <div class="card" id="historyCard">
       <div class="empty">Loading…</div>
     </div>
@@ -192,20 +192,29 @@
       banks.map(b => `<option value="${b.code}">${escapeHtml(b.name)}</option>`).join("");
   }
 
+  let lastData = null;
   async function loadWallet() {
-    const { data } = await apiFetch("/wallet/mine");
-    availableBalance = data.availableBalance || 0;
-    document.getElementById("availBalance").textContent = "₦" + availableBalance.toLocaleString();
-    document.getElementById("pendingBalance").textContent = "₦" + (data.pendingBalance || 0).toLocaleString();
+    const { ok, data } = await apiFetch("/business/refunds");
+    if (!ok) return;
+    lastData = data;
+    availableBalance = data.refundable || 0;
+    const n = (v) => "₦" + Number(v || 0).toLocaleString();
+    document.getElementById("availBalance").textContent = n(availableBalance);
+    document.getElementById("heldNote").textContent =
+      "Wallet balance " + n(data.availableBalance) +
+      (data.heldBalance > 0 ? " · " + n(Math.min(data.heldBalance, data.availableBalance)) + " added in the last " + data.holdHours + " hours can be refunded later" : "");
+    document.getElementById("wdLimits").textContent =
+      "Up to " + n(data.maxRefund) + " per refund · " + n(data.dailyRefundLimit) + " per day. Sent automatically to your own bank account, one at a time. " +
+      "Money campaigns have already used or reserved can't be refunded.";
   }
 
   async function loadHistory() {
-    const { ok, data } = await apiFetch("/withdrawals/mine");
+    const { ok, data } = await apiFetch("/business/refunds");
     const card = document.getElementById("historyCard");
     if (!ok) { card.innerHTML = '<div class="empty">Could not load history.</div>'; return; }
 
-    const rows = data.withdrawals || [];
-    if (rows.length === 0) { card.innerHTML = '<div class="empty">No withdrawals yet.</div>'; return; }
+    const rows = data.refunds || [];
+    if (rows.length === 0) { card.innerHTML = '<div class="empty">No refunds yet.</div>'; return; }
 
     card.innerHTML = rows.map(w => `
       <div class="wd-row">
@@ -271,15 +280,15 @@
       return;
     }
     if (!resolvedAccountName) {
-      msgEl.innerHTML = '<div class="msg warn">We need to verify this account before you can withdraw — check the number.</div>';
+      msgEl.innerHTML = '<div class="msg warn">We need to verify this account before you can request a refund — check the number.</div>';
       return;
     }
     if (amount <= 0) {
-      msgEl.innerHTML = '<div class="msg warn">Enter an amount to withdraw.</div>';
+      msgEl.innerHTML = '<div class="msg warn">Enter an amount to refund.</div>';
       return;
     }
     if (amount > availableBalance) {
-      msgEl.innerHTML = `<div class="msg warn">You only have ₦${availableBalance.toLocaleString()} available.</div>`;
+      msgEl.innerHTML = `<div class="msg warn">You can refund up to ₦${availableBalance.toLocaleString()} right now.</div>`;
       return;
     }
 
@@ -287,33 +296,22 @@
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Processing…';
 
-    const { ok, data } = await apiFetch("/withdrawals", {
+    const { ok, data } = await apiFetch("/business/refund", {
       method: "POST",
       body: JSON.stringify({ amount, bankCode, bankName, accountNumber, accountName: resolvedAccountName }),
     });
 
     if (ok && data.success) {
-      msgEl.innerHTML = `<div class="msg ok">${escapeHtml(data.message || "Withdrawal requested — funds are on the way to your bank.")}</div>`;
+      msgEl.innerHTML = `<div class="msg ok">${escapeHtml(data.message || "Refund requested — funds are on the way to your bank.")}</div>`;
       document.getElementById("wdAmount").value = "";
       loadWallet();
       loadHistory();
     } else {
-      msgEl.innerHTML = `<div class="msg warn">${escapeHtml(data.message || "Could not process withdrawal.")}</div>`;
+      msgEl.innerHTML = `<div class="msg warn">${escapeHtml(data.message || "Could not process the refund.")}</div>`;
     }
     btn.disabled = false;
-    btn.textContent = "Request Withdrawal";
+    btn.textContent = "Request Refund";
   };
-
-  (async function showLimits() {
-    try {
-      const { ok, data } = await apiFetch("/public/settings");
-      if (!ok) return;
-      const n = (v) => "₦" + Number(v || 0).toLocaleString();
-      document.getElementById("wdLimits").textContent =
-        "Minimum " + n(data.minWithdrawal) + " · Maximum " + n(data.maxWithdrawal) + " per withdrawal · " + n(data.dailyWithdrawalLimit) +
-        " per day. Withdrawals are sent automatically — one at a time.";
-    } catch (e) {}
-  })();
 
   init();
 </script>

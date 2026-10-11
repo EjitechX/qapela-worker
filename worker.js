@@ -17,6 +17,34 @@
  */
 
 
+// Withdrawal safety limits (₦). Change here only.
+const WITHDRAWAL_LIMITS = {
+  maxSingle: 200000,   // largest single withdrawal
+  maxPerDay: 500000,   // total in any rolling 24 hours
+  maxPerDayCount: 5,   // withdrawal attempts in any rolling 24 hours
+  staleMinutes: 10,    // a transfer still "processing" after this long gets checked and settled by the hourly job
+};
+
+// Platform revenue streams, each withdrawable on its own. "reserve" is money set aside
+// from task payouts (platform_treasury); every other key is a platform_revenue.type.
+const REVENUE_STREAMS = [
+  { key: "registration_fee", label: "Activation fees" },
+  { key: "campaign_service_revenue", label: "Task service margin" },
+  { key: "music_platform_fee", label: "Music sales fees" },
+  { key: "affiliate_platform_fee", label: "Affiliate fees" },
+  { key: "reserve", label: "Reserve from task payouts" },
+];
+const REVENUE_ACTIVE = "('processing','completed','needs_review')";
+
+// Business balance refunds to a bank account (₦). Money added by card in the last
+// `holdHours` can't be refunded yet (stops card-testing / money-laundering loops).
+const BUSINESS_REFUND_LIMITS = {
+  maxSingle: 1000000,
+  maxPerDay: 2000000,
+  maxPerDayCount: 3,
+  holdHours: 24,
+};
+
 // FROM: auth.js
 const auth = (function() {
 /**
@@ -172,7 +200,12 @@ async function requireAuth(request, env) {
   const authHeader = request.headers.get("Authorization") || "";
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) return null;
-  return verifyToken(match[1], env.AUTH_SECRET);
+  const uid = await verifyToken(match[1], env.AUTH_SECRET);
+  if (!uid) return null;
+  // A deleted account's old session tokens must stop working immediately.
+  const row = await env.DB.prepare("SELECT status FROM users WHERE uid = ?").bind(uid).first();
+  if (!row || row.status === "deleted") return null;
+  return uid;
 }
 
 // ---------------------------------------------------------------------
@@ -507,11 +540,17 @@ function brandedEmailHtml({ heading, bodyHtml, ctaLabel, ctaUrl }) {
 }
 
 async function sendResetEmail(env, toEmail, resetUrl) {
-  if (!env.RESEND_API_KEY) {
+  // Sender shows up as just "Qapela" in the inbox. Two providers are supported:
+  //  - Brevo (no domain needed): set secret BREVO_API_KEY, and verify the sender address in Brevo.
+  //    Sender address = EMAIL_FROM_ADDRESS if set, otherwise the support email below.
+  //  - Resend (needs a verified domain for real users): set RESEND_API_KEY and optionally EMAIL_FROM.
+  // Brevo is used first when its key exists.
+  const SUPPORT_EMAIL = "qapela.zrofeet@gmail.com";
+  if (!env.BREVO_API_KEY && !env.RESEND_API_KEY) {
     // Fails loudly rather than silently pretending an email went out —
     // the caller still returns a generic success message to the client
     // either way (see requestPasswordReset), but this gets logged.
-    console.error("RESEND_API_KEY is not set — cannot send password reset email.");
+    console.error("No email provider key set (BREVO_API_KEY or RESEND_API_KEY) — cannot send password reset email.");
     return false;
   }
   const html = brandedEmailHtml({
@@ -523,18 +562,39 @@ async function sendResetEmail(env, toEmail, resetUrl) {
     ctaLabel: "Reset Password",
     ctaUrl: resetUrl,
   });
-
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM || "Qapela <onboarding@resend.dev>", // set EMAIL_FROM (e.g. "Qapela <no-reply@yourdomain>") once a domain is verified on Resend
-      to: toEmail,
-      reply_to: "qapela.zrofeet@gmail.com",
-      subject: "Reset your Qapela password",
-      html,
-    }),
-  });
+  const subject = "Reset your Qapela password";
+  let res;
+  if (env.BREVO_API_KEY) {
+    res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        sender: { name: "Qapela", email: env.EMAIL_FROM_ADDRESS || SUPPORT_EMAIL },
+        to: [{ email: toEmail }],
+        replyTo: { email: SUPPORT_EMAIL },
+        subject,
+        htmlContent: html,
+      }),
+    });
+  } else {
+    res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: env.EMAIL_FROM || "Qapela <onboarding@resend.dev>",
+        to: toEmail,
+        reply_to: SUPPORT_EMAIL,
+        subject,
+        html,
+      }),
+    });
+  }
+  if (!res.ok) {
+    // Surface the provider's reason (unverified sender, bad key, recipient not allowed…) in Workers Logs.
+    let detail = "";
+    try { detail = await res.text(); } catch (e) {}
+    console.error("Email provider rejected the reset email:", res.status, detail);
+  }
   return res.ok;
 }
 
@@ -593,6 +653,155 @@ async function confirmPasswordReset(request, env) {
   return json({ success: true });
 }
 
+// ---------------------------------------------------------------------
+// Account self-service: change email/phone, change password, delete account.
+// Every one of these re-asks for the CURRENT password, so a stolen or
+// left-open session can't be used to lock the owner out or wipe the account.
+// ---------------------------------------------------------------------
+async function checkCurrentPassword(db, uid, password) {
+  const user = await db.prepare("SELECT * FROM users WHERE uid = ?").bind(uid).first();
+  if (!user || !password) return null;
+  const ok = await verifyPassword(String(password), user.passwordHash, user.passwordSalt);
+  return ok ? user : null;
+}
+
+// POST /account/contact { email?, phone?, currentPassword }
+async function changeContact(request, env) {
+  const uid = await requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const db = env.DB;
+  let body; try { body = await request.json(); } catch (e) { body = {}; }
+
+  const user = await checkCurrentPassword(db, uid, body.currentPassword);
+  if (!user) return json({ success: false, message: "Your current password is incorrect." }, 403);
+
+  let email = user.email;
+  let phone = user.phone;
+  if (body.email !== undefined) {
+    const e = String(body.email || "").trim().toLowerCase();
+    if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return json({ success: false, message: "Enter a valid email address." }, 400);
+    email = e || null;
+  }
+  if (body.phone !== undefined) {
+    const ph = String(body.phone || "").trim();
+    if (ph && !/^\+?[0-9][0-9 \-]{6,18}$/.test(ph)) return json({ success: false, message: "Enter a valid phone number." }, 400);
+    phone = ph || null;
+  }
+  if (!email && !phone) return json({ success: false, message: "Keep at least an email or a phone number on your account." }, 400);
+
+  if (email && email !== user.email) {
+    const taken = await db.prepare("SELECT uid FROM users WHERE email = ? AND uid != ?").bind(email, uid).first();
+    if (taken) return json({ success: false, message: "Another account already uses this email." });
+  }
+  if (phone && phone !== user.phone) {
+    const taken = await db.prepare("SELECT uid FROM users WHERE phone = ? AND uid != ?").bind(phone, uid).first();
+    if (taken) return json({ success: false, message: "Another account already uses this phone number." });
+  }
+
+  await db.prepare("UPDATE users SET email = ?, phone = ? WHERE uid = ?").bind(email, phone, uid).run();
+  return json({ success: true, email, phone });
+}
+
+// POST /account/password { currentPassword, newPassword }
+async function changePassword(request, env) {
+  const uid = await requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const db = env.DB;
+  let body; try { body = await request.json(); } catch (e) { body = {}; }
+
+  if (!body.newPassword || String(body.newPassword).length < 8) {
+    return json({ success: false, message: "New password must be at least 8 characters." }, 400);
+  }
+  const user = await checkCurrentPassword(db, uid, body.currentPassword);
+  if (!user) return json({ success: false, message: "Your current password is incorrect." }, 403);
+
+  const { hash, salt } = await hashPassword(String(body.newPassword));
+  await db.prepare("UPDATE users SET passwordHash = ?, passwordSalt = ? WHERE uid = ?").bind(hash, salt, uid).run();
+  return json({ success: true });
+}
+
+// Things that must be settled before an account can be deleted, so nobody
+// loses money or escapes an open obligation by deleting.
+async function getDeletionBlockers(db, uid) {
+  const blockers = [];
+  const n = (v) => Number(v || 0);
+  const naira = (v) => "₦" + Number(v || 0).toLocaleString();
+
+  const admin = await db.prepare("SELECT uid FROM admin_roles WHERE uid = ?").bind(uid).first();
+  if (admin) blockers.push("Admin accounts can't be deleted from here.");
+
+  const wd = await db.prepare("SELECT id FROM withdrawals WHERE userId = ? AND status IN ('processing','needs_review') LIMIT 1").bind(uid).first();
+  if (wd) blockers.push("You have a withdrawal in progress. Wait for it to finish first.");
+
+  const w = await db.prepare("SELECT availableBalance, pendingBalance FROM wallets WHERE uid = ?").bind(uid).first();
+  const held = n(w?.availableBalance) + n(w?.pendingBalance);
+  if (held > 0) blockers.push(`Withdraw your wallet balance first (${naira(held)} left).`);
+
+  const bw = await db.prepare("SELECT availableBalance, reservedFunds, campaignFunds FROM business_wallets WHERE uid = ?").bind(uid).first();
+  if (n(bw?.availableBalance) > 0) blockers.push(`Refund your business wallet balance to your bank first (${naira(bw.availableBalance)} left) — use "Refund to bank" on the business page.`);
+  if (n(bw?.reservedFunds) + n(bw?.campaignFunds) > 0) blockers.push(`${naira(n(bw?.reservedFunds) + n(bw?.campaignFunds))} is still committed to your campaigns. Wait for them to finish first.`);
+  const refundBusy = await db.prepare("SELECT id FROM business_refunds WHERE userId = ? AND status IN ('processing','needs_review') LIMIT 1").bind(uid).first();
+  if (refundBusy) blockers.push("You have a refund in progress. Wait for it to finish first.");
+
+  const sub = await db.prepare("SELECT id FROM submissions WHERE workerId = ? AND status IN ('pending','needs_review','processing') LIMIT 1").bind(uid).first();
+  if (sub) blockers.push("You have submitted tasks still waiting to be reviewed. Wait for the result first.");
+
+  const dis = await db.prepare("SELECT id FROM disputes WHERE raisedBy = ? AND status = 'open' LIMIT 1").bind(uid).first();
+  if (dis) blockers.push("You have an open dispute. It needs to be resolved first.");
+
+  const sale = await db.prepare("SELECT id FROM affiliate_sales WHERE (workerId = ? OR businessId = ?) AND status = 'processing' LIMIT 1").bind(uid, uid).first();
+  if (sale) blockers.push("An affiliate sale involving you is still being paid out. Try again shortly.");
+
+  return blockers;
+}
+
+// GET /account/delete-check
+async function deleteCheck(request, env) {
+  const uid = await requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const blockers = await getDeletionBlockers(env.DB, uid);
+  return json({ canDelete: blockers.length === 0, blockers });
+}
+
+// POST /account/delete { password, confirm: "DELETE" }
+// Removes personal data and signs the person out everywhere. Money records
+// (ledger, payments, withdrawals) are kept for accounting but stripped of
+// personal details.
+async function deleteAccount(request, env) {
+  const uid = await requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const db = env.DB;
+  let body; try { body = await request.json(); } catch (e) { body = {}; }
+
+  if (String(body.confirm || "").trim() !== "DELETE") {
+    return json({ success: false, message: 'Type DELETE to confirm.' }, 400);
+  }
+  const user = await checkCurrentPassword(db, uid, body.password);
+  if (!user) return json({ success: false, message: "Your password is incorrect." }, 403);
+
+  const blockers = await getDeletionBlockers(db, uid);
+  if (blockers.length) return json({ success: false, message: blockers[0], blockers });
+
+  const now = new Date().toISOString();
+  await db.batch([
+    db.prepare(
+      "UPDATE users SET email = NULL, phone = NULL, displayName = 'Deleted user', passwordHash = 'deleted', passwordSalt = 'deleted', referralCode = NULL, status = 'deleted' WHERE uid = ?"
+    ).bind(uid),
+    db.prepare("DELETE FROM notifications WHERE userId = ?").bind(uid),
+    db.prepare("DELETE FROM password_resets WHERE uid = ?").bind(uid),
+    db.prepare("DELETE FROM worker_profiles WHERE uid = ?").bind(uid),
+    db.prepare("DELETE FROM task_proof_files WHERE workerId = ?").bind(uid),
+    db.prepare("UPDATE businesses SET name = 'Deleted business' WHERE uid = ?").bind(uid),
+    db.prepare("UPDATE musicians SET name = 'Deleted artist', bio = NULL WHERE uid = ?").bind(uid),
+    db.prepare("UPDATE unreleased_songs SET status = 'removed' WHERE musicianId = ? AND status = 'active'").bind(uid),
+    db.prepare("UPDATE affiliate_links SET status = 'inactive', bankName = NULL, accountNumber = NULL, accountName = NULL WHERE workerId = ?").bind(uid),
+    db.prepare("UPDATE affiliate_listings SET status = 'inactive', deletedAt = ?, bankName = NULL, accountNumber = NULL, accountName = NULL WHERE businessId = ?").bind(now, uid),
+    db.prepare("UPDATE withdrawals SET accountNumber = '******' || SUBSTR(accountNumber, -4), accountName = 'Deleted' WHERE userId = ?").bind(uid),
+    db.prepare("UPDATE business_refunds SET accountNumber = '******' || SUBSTR(accountNumber, -4), accountName = 'Deleted' WHERE userId = ?").bind(uid),
+  ]);
+  return json({ success: true });
+}
+
   return {
   register,
   login,
@@ -602,6 +811,10 @@ async function confirmPasswordReset(request, env) {
   addRole,
   updateProfile,
   updateBusinessProfile,
+  changeContact,
+  changePassword,
+  deleteCheck,
+  deleteAccount,
   requestPasswordReset,
   confirmPasswordReset,
   signToken,
@@ -664,7 +877,7 @@ async function paystackFetch(path, secret, options = {}) {
   });
   const json = await res.json();
   if (!res.ok || json.status === false) {
-    throw new Error(json.message || "Paystack request failed");
+    throw new Error(json.message || "Request failed");
   }
   return json;
 }
@@ -732,96 +945,826 @@ async function resolveBankAccount(request, env) {
 //    there's enough money, and D1 reports back how many rows changed —
 //    that's our success/failure signal, atomically, no race condition.
 // ---------------------------------------------------------------------
+// Raw Paystack call: returns { ok, status, body } for ANY HTTP answer and
+// only throws if the network itself failed. That difference matters for
+// money: an answer means we know what happened, a thrown error means we don't.
+async function psRequest(path, secret, options = {}) {
+  const res = await fetch(`https://api.paystack.co${path}`, {
+    ...options,
+    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  let body = null;
+  try { body = await res.json(); } catch (e) {}
+  return { ok: res.ok && !!body && body.status !== false, status: res.status, body };
+}
+
+async function logMoneyAlert(db, userId, type, details) {
+  try {
+    await db
+      .prepare("INSERT INTO fraud_events (id, userId, type, details, createdAt) VALUES (?, ?, ?, ?, ?)")
+      .bind(crypto.randomUUID(), userId || null, type, typeof details === "string" ? details : JSON.stringify(details), new Date().toISOString())
+      .run();
+  } catch (e) {}
+}
+
+// One-shot settlement. Each helper flips status 'processing' -> final in the
+// SAME transaction as the wallet change, and the wallet/ledger/notification
+// statements only run if THIS call is the one that flipped the status (matched
+// by a fresh random settleToken). So webhook retries, double deliveries and the
+// hourly job can all call these safely — money moves exactly once.
+async function settleWithdrawalSuccess(db, w) {
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const r = await db.batch([
+    db.prepare("UPDATE withdrawals SET status = 'completed', processedAt = ?, settleToken = ? WHERE id = ? AND status = 'processing'").bind(now, token, w.id),
+    db.prepare("UPDATE wallets SET pendingBalance = pendingBalance - ? WHERE uid = ? AND EXISTS (SELECT 1 FROM withdrawals WHERE id = ? AND settleToken = ?)").bind(w.amount, w.userId, w.id, token),
+    db
+      .prepare(
+        `INSERT INTO notifications (id, userId, type, title, message, relatedId, read, createdAt)
+         SELECT ?, ?, 'withdrawal_completed', 'Withdrawal completed', ?, ?, 0, ?
+         WHERE EXISTS (SELECT 1 FROM withdrawals WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(crypto.randomUUID(), w.userId, `₦${Number(w.amount).toLocaleString()} was sent to your bank account.`, w.id, now, w.id, token),
+  ]);
+  return r[0].meta.changes === 1;
+}
+
+async function settleWithdrawalFailed(db, w, reason) {
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const r = await db.batch([
+    db.prepare("UPDATE withdrawals SET status = 'failed', processedAt = ?, failureReason = ?, settleToken = ? WHERE id = ? AND status = 'processing'").bind(now, String(reason || "failed").slice(0, 300), token, w.id),
+    db
+      .prepare("UPDATE wallets SET availableBalance = availableBalance + ?, pendingBalance = pendingBalance - ? WHERE uid = ? AND EXISTS (SELECT 1 FROM withdrawals WHERE id = ? AND settleToken = ?)")
+      .bind(w.amount, w.amount, w.userId, w.id, token),
+    db
+      .prepare(
+        `INSERT INTO ledger_transactions (id, walletId, walletType, type, amount, balanceAfter, relatedId, createdAt)
+         SELECT ?, ?, 'worker', 'withdrawal_refund', ?, (SELECT availableBalance FROM wallets WHERE uid = ?), ?, ?
+         WHERE EXISTS (SELECT 1 FROM withdrawals WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(crypto.randomUUID(), w.userId, w.amount, w.userId, w.id, now, w.id, token),
+    db
+      .prepare(
+        `INSERT INTO notifications (id, userId, type, title, message, relatedId, read, createdAt)
+         SELECT ?, ?, 'withdrawal_failed', 'Withdrawal failed', ?, ?, 0, ?
+         WHERE EXISTS (SELECT 1 FROM withdrawals WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(crypto.randomUUID(), w.userId, `Your ₦${Number(w.amount).toLocaleString()} withdrawal didn't go through — the amount is back in your available balance.`, w.id, now, w.id, token),
+  ]);
+  return r[0].meta.changes === 1;
+}
+
+// ---------------------------------------------------------------------
+// 3. Request withdrawal — automatic (no admin step), with strict guards:
+//    - signed-in, account status 'active'
+//    - whole-naira amount within min / per-withdrawal / daily limits
+//    - only ONE withdrawal in flight per user
+//    - bank account name is resolved HERE (never trusted from the browser)
+//    - the debit is one atomic transaction: the withdrawal row and the
+//      wallet deduction only happen if availableBalance covers the amount
+//      right now, so a balance can never go negative or be spent twice
+//    - if the payout can't be confirmed either way, the money stays held
+//      and the hourly job settles it — we never refund a transfer that
+//      might actually have gone out
+// ---------------------------------------------------------------------
 async function requestWithdrawal(request, env) {
   const uid = await auth.requireAuth(request, env);
   if (!uid) return json({ message: "Sign in required." }, 401);
-
-  const { amount, bankCode, bankName, accountNumber, accountName } = await request.json();
-  const amt = Math.floor(Number(amount));
   const db = env.DB;
+  const L = WITHDRAWAL_LIMITS;
+  const fail = (message) => json({ success: false, message });
+
+  let body;
+  try { body = await request.json(); } catch (e) { return fail("Invalid request."); }
+  const { bankCode, bankName } = body || {};
+  const accountNumber = String(body?.accountNumber || "").trim();
+  const amt = Number(body?.amount);
 
   const minWithdrawal = await getMinWithdrawal(db);
-  if (!amt || amt < minWithdrawal) {
-    return json({ success: false, message: `Minimum withdrawal is ₦${minWithdrawal}.` });
-  }
-  if (!bankCode || !accountNumber || !accountName) {
-    return json({ success: false, message: "Missing bank account details." });
+  if (!Number.isInteger(amt) || amt <= 0) return fail("Enter a valid amount in whole naira.");
+  if (amt < minWithdrawal) return fail(`Minimum withdrawal is ₦${minWithdrawal.toLocaleString()}.`);
+  if (amt > L.maxSingle) return fail(`Maximum per withdrawal is ₦${L.maxSingle.toLocaleString()}.`);
+  if (typeof bankCode !== "string" || !bankCode || !/^\d{10}$/.test(accountNumber)) {
+    return fail("Choose a bank and enter a valid 10-digit account number.");
   }
 
+  const user = await db.prepare("SELECT status FROM users WHERE uid = ?").bind(uid).first();
+  if (!user || user.status !== "active") return fail("This account can't make withdrawals right now. Please contact support.");
+
+  const inflight = await db.prepare("SELECT id FROM withdrawals WHERE userId = ? AND status = 'processing' LIMIT 1").bind(uid).first();
+  if (inflight) return fail("You already have a withdrawal in progress. Wait for it to finish before starting another.");
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const day = await db
+    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN status IN ('processing','completed') THEN amount ELSE 0 END), 0) AS total FROM withdrawals WHERE userId = ? AND requestedAt >= ?")
+    .bind(uid, since)
+    .first();
+  if ((day?.n || 0) >= L.maxPerDayCount) return fail("You've reached the limit of withdrawal attempts for today. Try again tomorrow.");
+  if ((day?.total || 0) + amt > L.maxPerDay) {
+    const left = Math.max(0, L.maxPerDay - (day?.total || 0));
+    return fail(`Daily withdrawal limit is ₦${L.maxPerDay.toLocaleString()}. You can withdraw up to ₦${left.toLocaleString()} more in the next 24 hours.`);
+  }
+
+  const wallet = await db.prepare("SELECT availableBalance FROM wallets WHERE uid = ?").bind(uid).first();
+  if (!wallet || wallet.availableBalance < amt) return fail("Insufficient balance.");
+
+  // Make sure the payment account can actually cover this payout BEFORE touching the wallet.
+  const cash = await getPayoutBalanceNaira(env);
+  if (cash !== null && cash < amt) {
+    await logMoneyAlert(db, uid, "payout_balance_low", { amt, paystackBalance: cash });
+    return fail("Withdrawals are temporarily unavailable. Your money is safe in your balance — please try again later.");
+  }
+
+  // Resolve the account name on the server — what the browser says doesn't count.
+  let accountName;
+  try {
+    const r = await psRequest(
+      `/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+      env.PAYSTACK_SECRET_KEY
+    );
+    accountName = r.body?.data?.account_name;
+    if (!r.ok || !accountName) return fail("We couldn't verify this bank account. Check the bank and account number.");
+  } catch (e) {
+    return fail("We couldn't reach the bank verification service. Please try again in a moment.");
+  }
+
+  // Atomic debit: insert the withdrawal AND take the money in one transaction,
+  // each conditional on the balance covering it and no other withdrawal in flight.
   const withdrawalId = crypto.randomUUID();
   const now = new Date().toISOString();
-
-  // Guarded deduction: only succeeds if availableBalance >= amt.
-  const deduction = await db
-    .prepare(
-      "UPDATE wallets SET availableBalance = availableBalance - ?, pendingBalance = pendingBalance + ? WHERE uid = ? AND availableBalance >= ?"
-    )
-    .bind(amt, amt, uid, amt)
-    .run();
-
-  if (deduction.meta.changes === 0) {
-    return json({ success: false, message: "Insufficient balance." });
+  const debit = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO withdrawals (id, userId, amount, provider, bankCode, bankName, accountNumber, accountName, status, requestedAt)
+         SELECT ?, ?, ?, 'paystack', ?, ?, ?, ?, 'processing', ?
+         WHERE (SELECT availableBalance FROM wallets WHERE uid = ?) >= ?
+           AND NOT EXISTS (SELECT 1 FROM withdrawals WHERE userId = ? AND status = 'processing')`
+      )
+      .bind(withdrawalId, uid, amt, bankCode, bankName || null, accountNumber, accountName, now, uid, amt, uid),
+    db
+      .prepare(
+        "UPDATE wallets SET availableBalance = availableBalance - ?, pendingBalance = pendingBalance + ? WHERE uid = ? AND availableBalance >= ? AND EXISTS (SELECT 1 FROM withdrawals WHERE id = ?)"
+      )
+      .bind(amt, amt, uid, amt, withdrawalId),
+    db
+      .prepare(
+        `INSERT INTO ledger_transactions (id, walletId, walletType, type, amount, balanceAfter, relatedId, createdAt)
+         SELECT ?, ?, 'worker', 'withdrawal', ?, (SELECT availableBalance FROM wallets WHERE uid = ?), ?, ?
+         WHERE EXISTS (SELECT 1 FROM withdrawals WHERE id = ?)`
+      )
+      .bind(crypto.randomUUID(), uid, -amt, uid, withdrawalId, now, withdrawalId),
+  ]);
+  if (debit[0].meta.changes !== 1) {
+    return fail("This withdrawal couldn't be started. Check your balance and that no other withdrawal is in progress.");
+  }
+  if (debit[1].meta.changes !== 1) {
+    // Should be impossible (same transaction) — never leave a held row without a deduction.
+    await db.prepare("DELETE FROM withdrawals WHERE id = ? AND status = 'processing'").bind(withdrawalId).run();
+    await db.prepare("DELETE FROM ledger_transactions WHERE relatedId = ? AND type = 'withdrawal'").bind(withdrawalId).run();
+    await logMoneyAlert(db, uid, "withdrawal_debit_mismatch", { withdrawalId, amt });
+    return fail("This withdrawal couldn't be started. Please try again.");
   }
 
-  await db
-    .prepare(
-      `INSERT INTO withdrawals (id, userId, amount, provider, bankCode, bankName, accountNumber, accountName, status, requestedAt)
-       VALUES (?, ?, ?, 'paystack', ?, ?, ?, ?, 'processing', ?)`
-    )
-    .bind(withdrawalId, uid, amt, bankCode, bankName || null, accountNumber, accountName, now)
-    .run();
+  const w = { id: withdrawalId, userId: uid, amount: amt };
+  const unavailable = "Withdrawals are temporarily unavailable. Your money is safe in your balance — please try again later.";
 
-  // Step 2: talk to Paystack. On any failure, roll back step 1 exactly
-  // like the original — give the money back to available balance.
   try {
-    const recipientRes = await paystackFetch("/transferrecipient", env.PAYSTACK_SECRET_KEY, {
+    // 1) payout recipient
+    const rec = await psRequest("/transferrecipient", env.PAYSTACK_SECRET_KEY, {
       method: "POST",
-      body: JSON.stringify({
-        type: "nuban",
-        name: accountName,
-        account_number: accountNumber,
-        bank_code: bankCode,
-        currency: "NGN",
-      }),
+      body: JSON.stringify({ type: "nuban", name: accountName, account_number: accountNumber, bank_code: bankCode, currency: "NGN" }),
     });
-    const recipientCode = recipientRes.data.recipient_code;
+    if (!rec.ok) {
+      await settleWithdrawalFailed(db, w, "recipient: " + (rec.body?.message || rec.status));
+      return fail("We couldn't set up this bank account for payout. Check the details and try again.");
+    }
 
-    const transferRes = await paystackFetch("/transfer", env.PAYSTACK_SECRET_KEY, {
+    // 2) the transfer — reference = our withdrawal id, so it can never be sent twice
+    const tr = await psRequest("/transfer", env.PAYSTACK_SECRET_KEY, {
       method: "POST",
       body: JSON.stringify({
         source: "balance",
-        amount: amt * 100, // kobo
-        recipient: recipientCode,
-        reason: "Qapela worker withdrawal",
+        amount: amt * 100,
+        recipient: rec.body.data.recipient_code,
+        reason: "Qapela withdrawal",
         reference: withdrawalId,
       }),
     });
 
+    if (!tr.ok) {
+      // Paystack answered "no": no transfer exists, so refunding is safe.
+      await settleWithdrawalFailed(db, w, "transfer: " + (tr.body?.message || tr.status));
+      if (/balance/i.test(tr.body?.message || "")) {
+        await logMoneyAlert(db, uid, "payout_balance_low", { withdrawalId, amt, message: tr.body?.message });
+      }
+      return fail(unavailable);
+    }
+
+    const status = tr.body.data.status;
     await db
       .prepare("UPDATE withdrawals SET providerRef = ?, paystackStatus = ? WHERE id = ?")
-      .bind(transferRes.data.transfer_code, transferRes.data.status, withdrawalId)
+      .bind(tr.body.data.transfer_code, status, withdrawalId)
       .run();
 
-    if (transferRes.data.status === "otp") {
-      return json({
-        success: true,
-        message: "Withdrawal is queued and needs manual approval — you'll be notified once it's sent.",
-      });
+    if (status === "otp") {
+      // The payout account is set to ask for a manual confirmation, which would
+      // mean a human approving every withdrawal. We don't allow that: refund and alert.
+      await settleWithdrawalFailed(db, w, "payout provider asked for manual confirmation");
+      await logMoneyAlert(db, uid, "payout_otp_required", { withdrawalId, amt, hint: "Turn off 'Confirm transfers before sending' in the Paystack dashboard (Settings > Preferences)." });
+      return fail(unavailable);
     }
-    return json({ success: true });
+    if (status === "success") {
+      await settleWithdrawalSuccess(db, w);
+      return json({ success: true, message: "Withdrawal sent. It should reach your bank shortly." });
+    }
+    if (status === "failed" || status === "reversed") {
+      await settleWithdrawalFailed(db, w, "transfer " + status);
+      return fail("The transfer couldn't be completed. Your money is back in your balance.");
+    }
+    return json({ success: true, message: "Withdrawal is on its way to your bank. We'll notify you once it lands." });
   } catch (err) {
-    await db
-      .prepare(
-        "UPDATE wallets SET availableBalance = availableBalance + ?, pendingBalance = pendingBalance - ? WHERE uid = ?"
-      )
-      .bind(amt, amt, uid)
-      .run();
-    await db
-      .prepare("UPDATE withdrawals SET status = 'failed', processedAt = ?, failureReason = ? WHERE id = ?")
-      .bind(new Date().toISOString(), err.message, withdrawalId)
-      .run();
-    return json({ success: false, message: "Could not initiate transfer: " + err.message });
+    // Network trouble: we do NOT know whether the transfer went out. Keep the
+    // money held ('processing'); the webhook or the hourly check settles it.
+    await logMoneyAlert(db, uid, "withdrawal_unconfirmed", { withdrawalId, amt, error: String(err?.message || err) });
+    return json({ success: true, message: "Withdrawal is being processed. We'll notify you as soon as it's confirmed." });
   }
+}
+
+// ---- Platform revenue: separate streams, each withdrawable, plus "withdraw all" ----
+async function getRevenueStreams(db) {
+  const { results: earnedRows } = await db.prepare("SELECT type, COALESCE(SUM(amount), 0) AS earned FROM platform_revenue GROUP BY type").all();
+  const { results: takenRows } = await db
+    .prepare(
+      `SELECT i.category, COALESCE(SUM(i.amount), 0) AS taken
+       FROM revenue_withdrawal_items i JOIN revenue_withdrawals w ON w.id = i.withdrawalId
+       WHERE w.status IN ${REVENUE_ACTIVE} GROUP BY i.category`
+    )
+    .all();
+  const treasury = await db.prepare("SELECT lockedReserve FROM platform_treasury WHERE id = 'main'").first();
+  const earned = new Map((earnedRows || []).map((r) => [r.type, r.earned]));
+  const taken = new Map((takenRows || []).map((r) => [r.category, r.taken]));
+
+  const known = REVENUE_STREAMS.map((x) => x.key);
+  const extra = [...earned.keys()].filter((k) => !known.includes(k));
+  const defs = [
+    ...REVENUE_STREAMS,
+    ...extra.map((k) => ({ key: k, label: k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()) })),
+  ];
+
+  return defs.map((d) => {
+    if (d.key === "reserve") {
+      const available = treasury?.lockedReserve || 0;
+      const withdrawn = taken.get("reserve") || 0;
+      return { key: d.key, label: d.label, earned: available + withdrawn, withdrawn, available };
+    }
+    const e = earned.get(d.key) || 0;
+    const w = taken.get(d.key) || 0;
+    return { key: d.key, label: d.label, earned: e, withdrawn: w, available: Math.max(0, e - w) };
+  });
+}
+
+// GET /admin/revenue
+async function getAdminRevenue(request, env) {
+  const uid = await auth.requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const db = env.DB;
+  if (!(await isAdmin(db, uid))) return json({ message: "Admin access required." }, 403);
+
+  const streams = await getRevenueStreams(db);
+  const totalAvailable = streams.reduce((a, x) => a + x.available, 0);
+  const cover = await getPayoutCover(env);
+  const maxNow = cover.surplus === null ? null : Math.max(0, Math.min(totalAvailable, cover.surplus));
+  const { results: recent } = await db
+    .prepare("SELECT id, scope, amount, bankName, accountNumber, accountName, status, requestedAt, failureReason FROM revenue_withdrawals ORDER BY requestedAt DESC LIMIT 20")
+    .all();
+  const inflight = await db.prepare("SELECT id FROM revenue_withdrawals WHERE status = 'processing' LIMIT 1").first();
+  return json({
+    streams,
+    totalAvailable,
+    cashAboveOwed: cover.surplus,
+    paystackBalance: cover.paystackBalance,
+    owedToUsers: cover.owedToUsers,
+    withdrawableNow: maxNow,
+    withdrawalInProgress: !!inflight,
+    recent: recent || [],
+  });
+}
+
+async function settleRevenueSuccess(db, w) {
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const r = await db
+    .prepare("UPDATE revenue_withdrawals SET status = 'completed', processedAt = ?, settleToken = ? WHERE id = ? AND status = 'processing'")
+    .bind(now, token, w.id)
+    .run();
+  return r.meta.changes === 1;
+}
+
+async function settleRevenueFailed(db, w, reason) {
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const r = await db.batch([
+    db.prepare("UPDATE revenue_withdrawals SET status = 'failed', processedAt = ?, failureReason = ?, settleToken = ? WHERE id = ? AND status = 'processing'").bind(now, String(reason || "failed").slice(0, 300), token, w.id),
+    // Revenue streams free up automatically (a failed withdrawal no longer counts). Only the reserve needs its money put back.
+    db
+      .prepare(
+        `UPDATE platform_treasury
+         SET lockedReserve = lockedReserve + (SELECT COALESCE(SUM(amount), 0) FROM revenue_withdrawal_items WHERE withdrawalId = ? AND category = 'reserve'), updatedAt = ?
+         WHERE id = 'main' AND EXISTS (SELECT 1 FROM revenue_withdrawals WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(w.id, now, w.id, token),
+    db
+      .prepare(
+        `INSERT INTO ledger_transactions (id, walletId, walletType, type, amount, relatedId, createdAt)
+         SELECT ?, 'platformRevenue', 'platform', 'revenue_withdrawal_reversed', ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM revenue_withdrawals WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(crypto.randomUUID(), w.amount, w.id, now, w.id, token),
+  ]);
+  return r[0].meta.changes === 1;
+}
+
+// POST /admin/revenue/withdraw { scope: "<stream key>" | "all", amount?, bankCode, bankName, accountNumber }
+// - a stream withdraws up to that stream's available revenue (all of it unless an amount is given)
+// - "all" withdraws everything available across every stream
+// - never more than the cash that sits ABOVE what is owed to users, so revenue can't be paid out of users' money
+// - account name looked up by the server, atomic debit, one revenue withdrawal at a time, exactly-once settlement
+async function requestRevenueWithdrawal(request, env) {
+  const uid = await auth.requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const db = env.DB;
+  if (!(await isAdmin(db, uid))) return json({ message: "Admin access required." }, 403);
+  const fail = (message) => json({ success: false, message });
+
+  let body;
+  try { body = await request.json(); } catch (e) { return fail("Invalid request."); }
+  const scope = String(body?.scope || "");
+  const { bankCode, bankName } = body || {};
+  const accountNumber = String(body?.accountNumber || "").trim();
+  if (typeof bankCode !== "string" || !bankCode || !/^\d{10}$/.test(accountNumber)) {
+    return fail("Choose a bank and enter a valid 10-digit account number.");
+  }
+
+  const streams = await getRevenueStreams(db);
+  let items = [];
+  if (scope === "all") {
+    items = streams.filter((x) => x.available > 0).map((x) => ({ category: x.key, amount: x.available }));
+  } else {
+    const st = streams.find((x) => x.key === scope);
+    if (!st) return fail("Unknown revenue stream.");
+    const amt = body?.amount === undefined || body?.amount === null || body?.amount === "" ? st.available : Number(body.amount);
+    if (!Number.isInteger(amt) || amt <= 0) return fail("Enter a valid amount in whole naira.");
+    if (amt > st.available) return fail(`Only ₦${st.available.toLocaleString()} is available in ${st.label}.`);
+    items = [{ category: st.key, amount: amt }];
+  }
+  const total = items.reduce((a, x) => a + x.amount, 0);
+  if (total < 100) return fail("There's nothing to withdraw there yet (minimum ₦100).");
+
+  const inflight = await db.prepare("SELECT id FROM revenue_withdrawals WHERE status = 'processing' LIMIT 1").first();
+  if (inflight) return fail("A revenue withdrawal is already in progress. Wait for it to finish.");
+
+  // Revenue must come from cash that is NOT owed to users.
+  const cover = await getPayoutCover(env);
+  if (cover.surplus === null) return fail("Couldn't check the payment account balance right now. Try again in a moment.");
+  if (total > cover.surplus) {
+    return fail(`Only ₦${Math.max(0, cover.surplus).toLocaleString()} of cash is above what is owed to users right now. Withdraw less, or top up the payment account.`);
+  }
+
+  let accountName;
+  try {
+    const r = await psRequest(
+      `/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+      env.PAYSTACK_SECRET_KEY
+    );
+    accountName = r.body?.data?.account_name;
+    if (!r.ok || !accountName) return fail("We couldn't verify this bank account. Check the bank and account number.");
+  } catch (e) {
+    return fail("We couldn't reach the bank verification service. Please try again in a moment.");
+  }
+
+  // Atomic: the withdrawal row exists only if EVERY stream still covers its part, then the
+  // parts are recorded (and the reserve is deducted) in the same transaction.
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const conds = [];
+  const condBinds = [];
+  for (const it of items) {
+    if (it.category === "reserve") {
+      conds.push("COALESCE((SELECT lockedReserve FROM platform_treasury WHERE id = 'main'), 0) >= ?");
+      condBinds.push(it.amount);
+    } else {
+      conds.push(
+        `(COALESCE((SELECT SUM(amount) FROM platform_revenue WHERE type = ?), 0)
+          - COALESCE((SELECT SUM(i.amount) FROM revenue_withdrawal_items i JOIN revenue_withdrawals w ON w.id = i.withdrawalId
+                      WHERE i.category = ? AND w.status IN ${REVENUE_ACTIVE}), 0)) >= ?`
+      );
+      condBinds.push(it.category, it.category, it.amount);
+    }
+  }
+  const stmts = [
+    db
+      .prepare(
+        `INSERT INTO revenue_withdrawals (id, scope, amount, bankCode, bankName, accountNumber, accountName, status, requestedBy, requestedAt)
+         SELECT ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM revenue_withdrawals WHERE status = 'processing')
+           AND ${conds.join(" AND ")}`
+      )
+      .bind(id, scope, total, bankCode, bankName || null, accountNumber, accountName, uid, now, ...condBinds),
+  ];
+  for (const it of items) {
+    stmts.push(
+      db
+        .prepare("INSERT INTO revenue_withdrawal_items (withdrawalId, category, amount) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM revenue_withdrawals WHERE id = ?)")
+        .bind(id, it.category, it.amount, id)
+    );
+    if (it.category === "reserve") {
+      stmts.push(
+        db
+          .prepare("UPDATE platform_treasury SET lockedReserve = lockedReserve - ?, updatedAt = ? WHERE id = 'main' AND lockedReserve >= ? AND EXISTS (SELECT 1 FROM revenue_withdrawals WHERE id = ?)")
+          .bind(it.amount, now, it.amount, id)
+      );
+    }
+  }
+  stmts.push(
+    db
+      .prepare(
+        `INSERT INTO ledger_transactions (id, walletId, walletType, type, amount, relatedId, createdAt)
+         SELECT ?, 'platformRevenue', 'platform', 'revenue_withdrawal', ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM revenue_withdrawals WHERE id = ?)`
+      )
+      .bind(crypto.randomUUID(), -total, id, now, id)
+  );
+  const res = await db.batch(stmts);
+  if (res[0].meta.changes !== 1) {
+    return fail("This withdrawal couldn't be started — the available revenue changed or another withdrawal is in progress. Refresh and try again.");
+  }
+
+  const w = { id, amount: total };
+  const unavailable = "Payouts are temporarily unavailable. Nothing was taken — please try again later.";
+  try {
+    const rec = await psRequest("/transferrecipient", env.PAYSTACK_SECRET_KEY, {
+      method: "POST",
+      body: JSON.stringify({ type: "nuban", name: accountName, account_number: accountNumber, bank_code: bankCode, currency: "NGN" }),
+    });
+    if (!rec.ok) {
+      await settleRevenueFailed(db, w, "recipient: " + (rec.body?.message || rec.status));
+      return fail("We couldn't set up this bank account for payout. Check the details and try again.");
+    }
+    const tr = await psRequest("/transfer", env.PAYSTACK_SECRET_KEY, {
+      method: "POST",
+      body: JSON.stringify({ source: "balance", amount: total * 100, recipient: rec.body.data.recipient_code, reason: "Qapela revenue withdrawal", reference: id }),
+    });
+    if (!tr.ok) {
+      await settleRevenueFailed(db, w, "transfer: " + (tr.body?.message || tr.status));
+      return fail(unavailable);
+    }
+    const status = tr.body.data.status;
+    await db.prepare("UPDATE revenue_withdrawals SET providerRef = ?, paystackStatus = ? WHERE id = ?").bind(tr.body.data.transfer_code, status, id).run();
+    if (status === "otp") {
+      await settleRevenueFailed(db, w, "payout provider asked for manual confirmation");
+      await logMoneyAlert(db, uid, "payout_otp_required", { revenueWithdrawalId: id });
+      return fail("Paystack is asking for a manual confirmation. Turn off 'Confirm transfers before sending' in your Paystack dashboard (Settings > Preferences), then try again.");
+    }
+    if (status === "success") {
+      await settleRevenueSuccess(db, w);
+      return json({ success: true, message: "Revenue withdrawal sent to your bank." });
+    }
+    if (status === "failed" || status === "reversed") {
+      await settleRevenueFailed(db, w, "transfer " + status);
+      return fail("The transfer couldn't be completed. Nothing was taken.");
+    }
+    return json({ success: true, message: "Revenue withdrawal is on its way to your bank." });
+  } catch (err) {
+    await logMoneyAlert(db, uid, "revenue_withdrawal_unconfirmed", { id, total, error: String(err?.message || err) });
+    return json({ success: true, message: "Revenue withdrawal is being processed. It will show as completed once confirmed." });
+  }
+}
+
+// ---- Payout cover: is there enough cash in the payment account to pay people out? ----
+async function getPayoutBalanceNaira(env) {
+  try {
+    const r = await psRequest("/balance", env.PAYSTACK_SECRET_KEY);
+    const ngn = (r.body?.data || []).find((b) => b.currency === "NGN");
+    if (r.ok && ngn) return Math.floor(Number(ngn.balance) / 100);
+  } catch (e) {}
+  return null; // couldn't tell: don't block anyone on a lookup failure
+}
+
+// Cash in the payment account vs. everything the platform owes users
+// (all worker wallets + all business wallet money, incl. money committed to campaigns).
+async function getPayoutCover(env) {
+  const paystackBalance = await getPayoutBalanceNaira(env);
+  const row = await env.DB
+    .prepare(
+      `SELECT COALESCE((SELECT SUM(availableBalance + pendingBalance) FROM wallets), 0) AS workers,
+              COALESCE((SELECT SUM(availableBalance + reservedFunds + campaignFunds) FROM business_wallets), 0) AS businesses`
+    )
+    .first();
+  const owedToUsers = (row?.workers || 0) + (row?.businesses || 0);
+  return { paystackBalance, owedToUsers, surplus: paystackBalance === null ? null : paystackBalance - owedToUsers };
+}
+
+// Hourly: if the cash no longer covers what's owed, leave a visible alert (once a day).
+async function checkPayoutCover(env) {
+  try {
+    const c = await getPayoutCover(env);
+    if (c.surplus === null || c.surplus >= 0) return;
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const recent = await env.DB.prepare("SELECT id FROM fraud_events WHERE type = 'payout_balance_below_owed' AND createdAt >= ? LIMIT 1").bind(since).first();
+    if (!recent) await logMoneyAlert(env.DB, null, "payout_balance_below_owed", c);
+  } catch (e) {}
+}
+
+// ---- Business balance refund to bank (same one-shot settlement design as withdrawals) ----
+async function settleRefundSuccess(db, r) {
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const res = await db.batch([
+    db.prepare("UPDATE business_refunds SET status = 'completed', processedAt = ?, settleToken = ? WHERE id = ? AND status = 'processing'").bind(now, token, r.id),
+    db
+      .prepare(
+        `INSERT INTO notifications (id, userId, type, title, message, relatedId, read, createdAt)
+         SELECT ?, ?, 'refund_completed', 'Refund sent', ?, ?, 0, ?
+         WHERE EXISTS (SELECT 1 FROM business_refunds WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(crypto.randomUUID(), r.userId, `₦${Number(r.amount).toLocaleString()} was refunded to your bank account.`, r.id, now, r.id, token),
+  ]);
+  return res[0].meta.changes === 1;
+}
+
+async function settleRefundFailed(db, r, reason) {
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const res = await db.batch([
+    db.prepare("UPDATE business_refunds SET status = 'failed', processedAt = ?, failureReason = ?, settleToken = ? WHERE id = ? AND status = 'processing'").bind(now, String(reason || "failed").slice(0, 300), token, r.id),
+    db
+      .prepare("UPDATE business_wallets SET availableBalance = availableBalance + ? WHERE uid = ? AND EXISTS (SELECT 1 FROM business_refunds WHERE id = ? AND settleToken = ?)")
+      .bind(r.amount, r.userId, r.id, token),
+    db
+      .prepare(
+        `INSERT INTO ledger_transactions (id, walletId, walletType, type, amount, balanceAfter, relatedId, createdAt)
+         SELECT ?, ?, 'business', 'bank_refund_reversed', ?, (SELECT availableBalance FROM business_wallets WHERE uid = ?), ?, ?
+         WHERE EXISTS (SELECT 1 FROM business_refunds WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(crypto.randomUUID(), r.userId, r.amount, r.userId, r.id, now, r.id, token),
+    db
+      .prepare(
+        `INSERT INTO notifications (id, userId, type, title, message, relatedId, read, createdAt)
+         SELECT ?, ?, 'refund_failed', 'Refund failed', ?, ?, 0, ?
+         WHERE EXISTS (SELECT 1 FROM business_refunds WHERE id = ? AND settleToken = ?)`
+      )
+      .bind(crypto.randomUUID(), r.userId, `Your ₦${Number(r.amount).toLocaleString()} refund didn't go through — the amount is back in your wallet.`, r.id, now, r.id, token),
+  ]);
+  return res[0].meta.changes === 1;
+}
+
+// How much of the wallet can be refunded right now: available balance minus
+// card top-ups still inside the hold window.
+async function getRefundable(db, uid) {
+  const since = new Date(Date.now() - BUSINESS_REFUND_LIMITS.holdHours * 3600 * 1000).toISOString();
+  const row = await db
+    .prepare(
+      `SELECT COALESCE((SELECT availableBalance FROM business_wallets WHERE uid = ?), 0) AS available,
+              COALESCE((SELECT SUM(amount) FROM deposits WHERE businessId = ? AND status = 'success' AND createdAt >= ?), 0) AS held`
+    )
+    .bind(uid, uid, since)
+    .first();
+  const available = row?.available || 0;
+  const held = row?.held || 0;
+  return { available, held, refundable: Math.max(0, available - held), since };
+}
+
+// GET /business/refunds — refundable amount + history
+async function getMyBusinessRefunds(request, env) {
+  const uid = await auth.requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const info = await getRefundable(env.DB, uid);
+  const { results } = await env.DB
+    .prepare("SELECT id, amount, bankName, accountNumber, status, requestedAt FROM business_refunds WHERE userId = ? ORDER BY requestedAt DESC LIMIT 30")
+    .bind(uid)
+    .all();
+  return json({
+    availableBalance: info.available,
+    refundable: info.refundable,
+    heldBalance: info.held,
+    holdHours: BUSINESS_REFUND_LIMITS.holdHours,
+    maxRefund: BUSINESS_REFUND_LIMITS.maxSingle,
+    dailyRefundLimit: BUSINESS_REFUND_LIMITS.maxPerDay,
+    refunds: results || [],
+  });
+}
+
+// POST /business/refund { amount, bankCode, bankName, accountNumber }
+// Same guards as worker withdrawals (server-resolved account name, atomic debit,
+// one at a time, limits, confirm-before-refund-on-failure) plus the top-up hold.
+async function requestBusinessRefund(request, env) {
+  const uid = await auth.requireAuth(request, env);
+  if (!uid) return json({ message: "Sign in required." }, 401);
+  const db = env.DB;
+  const L = BUSINESS_REFUND_LIMITS;
+  const fail = (message) => json({ success: false, message });
+
+  let body;
+  try { body = await request.json(); } catch (e) { return fail("Invalid request."); }
+  const { bankCode, bankName } = body || {};
+  const accountNumber = String(body?.accountNumber || "").trim();
+  const amt = Number(body?.amount);
+
+  const minAmount = await getMinWithdrawal(db);
+  if (!Number.isInteger(amt) || amt <= 0) return fail("Enter a valid amount in whole naira.");
+  if (amt < minAmount) return fail(`Minimum refund is ₦${minAmount.toLocaleString()}.`);
+  if (amt > L.maxSingle) return fail(`Maximum per refund is ₦${L.maxSingle.toLocaleString()}.`);
+  if (typeof bankCode !== "string" || !bankCode || !/^\d{10}$/.test(accountNumber)) {
+    return fail("Choose a bank and enter a valid 10-digit account number.");
+  }
+
+  const user = await db.prepare("SELECT status FROM users WHERE uid = ?").bind(uid).first();
+  if (!user || user.status !== "active") return fail("This account can't request refunds right now. Please contact support.");
+
+  const inflight = await db.prepare("SELECT id FROM business_refunds WHERE userId = ? AND status = 'processing' LIMIT 1").bind(uid).first();
+  if (inflight) return fail("You already have a refund in progress. Wait for it to finish before starting another.");
+
+  const since24 = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const day = await db
+    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN status IN ('processing','completed') THEN amount ELSE 0 END), 0) AS total FROM business_refunds WHERE userId = ? AND requestedAt >= ?")
+    .bind(uid, since24)
+    .first();
+  if ((day?.n || 0) >= L.maxPerDayCount) return fail("You've reached the limit of refund attempts for today. Try again tomorrow.");
+  if ((day?.total || 0) + amt > L.maxPerDay) {
+    const left = Math.max(0, L.maxPerDay - (day?.total || 0));
+    return fail(`Daily refund limit is ₦${L.maxPerDay.toLocaleString()}. You can refund up to ₦${left.toLocaleString()} more in the next 24 hours.`);
+  }
+
+  const info = await getRefundable(db, uid);
+  if (amt > info.refundable) {
+    if (amt > info.available) return fail("Insufficient balance.");
+    return fail(`You can refund up to ₦${info.refundable.toLocaleString()} right now. Money added in the last ${L.holdHours} hours can be refunded after ${L.holdHours} hours.`);
+  }
+
+  const cash = await getPayoutBalanceNaira(env);
+  if (cash !== null && cash < amt) {
+    await logMoneyAlert(db, uid, "payout_balance_low", { amt, paystackBalance: cash });
+    return fail("Refunds are temporarily unavailable. Your money is safe in your wallet — please try again later.");
+  }
+
+  let accountName;
+  try {
+    const r = await psRequest(
+      `/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+      env.PAYSTACK_SECRET_KEY
+    );
+    accountName = r.body?.data?.account_name;
+    if (!r.ok || !accountName) return fail("We couldn't verify this bank account. Check the bank and account number.");
+  } catch (e) {
+    return fail("We couldn't reach the bank verification service. Please try again in a moment.");
+  }
+
+  // Atomic debit: the refund row and the wallet deduction happen together, only if
+  // (available - recent top-ups) still covers the amount and nothing else is in flight.
+  const refundId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const debit = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO business_refunds (id, userId, amount, bankCode, bankName, accountNumber, accountName, status, requestedAt)
+         SELECT ?, ?, ?, ?, ?, ?, ?, 'processing', ?
+         WHERE (COALESCE((SELECT availableBalance FROM business_wallets WHERE uid = ?), 0)
+                - COALESCE((SELECT SUM(amount) FROM deposits WHERE businessId = ? AND status = 'success' AND createdAt >= ?), 0)) >= ?
+           AND NOT EXISTS (SELECT 1 FROM business_refunds WHERE userId = ? AND status = 'processing')`
+      )
+      .bind(refundId, uid, amt, bankCode, bankName || null, accountNumber, accountName, now, uid, uid, info.since, amt, uid),
+    db
+      .prepare("UPDATE business_wallets SET availableBalance = availableBalance - ? WHERE uid = ? AND availableBalance >= ? AND EXISTS (SELECT 1 FROM business_refunds WHERE id = ?)")
+      .bind(amt, uid, amt, refundId),
+    db
+      .prepare(
+        `INSERT INTO ledger_transactions (id, walletId, walletType, type, amount, balanceAfter, relatedId, createdAt)
+         SELECT ?, ?, 'business', 'bank_refund', ?, (SELECT availableBalance FROM business_wallets WHERE uid = ?), ?, ?
+         WHERE EXISTS (SELECT 1 FROM business_refunds WHERE id = ?)`
+      )
+      .bind(crypto.randomUUID(), uid, -amt, uid, refundId, now, refundId),
+  ]);
+  if (debit[0].meta.changes !== 1) return fail("This refund couldn't be started. Check your refundable balance and that no other refund is in progress.");
+  if (debit[1].meta.changes !== 1) {
+    await db.prepare("DELETE FROM business_refunds WHERE id = ? AND status = 'processing'").bind(refundId).run();
+    await db.prepare("DELETE FROM ledger_transactions WHERE relatedId = ? AND type = 'bank_refund'").bind(refundId).run();
+    await logMoneyAlert(db, uid, "refund_debit_mismatch", { refundId, amt });
+    return fail("This refund couldn't be started. Please try again.");
+  }
+
+  const r = { id: refundId, userId: uid, amount: amt };
+  const unavailable = "Refunds are temporarily unavailable. Your money is safe in your wallet — please try again later.";
+  try {
+    const rec = await psRequest("/transferrecipient", env.PAYSTACK_SECRET_KEY, {
+      method: "POST",
+      body: JSON.stringify({ type: "nuban", name: accountName, account_number: accountNumber, bank_code: bankCode, currency: "NGN" }),
+    });
+    if (!rec.ok) {
+      await settleRefundFailed(db, r, "recipient: " + (rec.body?.message || rec.status));
+      return fail("We couldn't set up this bank account for payout. Check the details and try again.");
+    }
+    const tr = await psRequest("/transfer", env.PAYSTACK_SECRET_KEY, {
+      method: "POST",
+      body: JSON.stringify({ source: "balance", amount: amt * 100, recipient: rec.body.data.recipient_code, reason: "Qapela balance refund", reference: refundId }),
+    });
+    if (!tr.ok) {
+      await settleRefundFailed(db, r, "transfer: " + (tr.body?.message || tr.status));
+      if (/balance/i.test(tr.body?.message || "")) await logMoneyAlert(db, uid, "payout_balance_low", { refundId, amt });
+      return fail(unavailable);
+    }
+    const status = tr.body.data.status;
+    await db.prepare("UPDATE business_refunds SET providerRef = ?, paystackStatus = ? WHERE id = ?").bind(tr.body.data.transfer_code, status, refundId).run();
+    if (status === "otp") {
+      await settleRefundFailed(db, r, "payout provider asked for manual confirmation");
+      await logMoneyAlert(db, uid, "payout_otp_required", { refundId, amt });
+      return fail(unavailable);
+    }
+    if (status === "success") {
+      await settleRefundSuccess(db, r);
+      return json({ success: true, message: "Refund sent. It should reach your bank shortly." });
+    }
+    if (status === "failed" || status === "reversed") {
+      await settleRefundFailed(db, r, "transfer " + status);
+      return fail("The transfer couldn't be completed. Your money is back in your wallet.");
+    }
+    return json({ success: true, message: "Refund is on its way to your bank. We'll notify you once it lands." });
+  } catch (err) {
+    await logMoneyAlert(db, uid, "refund_unconfirmed", { refundId, amt, error: String(err?.message || err) });
+    return json({ success: true, message: "Refund is being processed. We'll notify you as soon as it's confirmed." });
+  }
+}
+
+// Hourly safety net: settle any withdrawal still 'processing' after a while.
+async function reconcileWithdrawals(env) {
+  const db = env.DB;
+  const cutoff = new Date(Date.now() - WITHDRAWAL_LIMITS.staleMinutes * 60 * 1000).toISOString();
+  const { results } = await db
+    .prepare("SELECT * FROM withdrawals WHERE status = 'processing' AND requestedAt <= ? LIMIT 50")
+    .bind(cutoff)
+    .all();
+  for (const w of results || []) {
+    try {
+      const r = await psRequest(`/transfer/verify/${encodeURIComponent(w.id)}`, env.PAYSTACK_SECRET_KEY);
+      if (r.ok) {
+        const st = r.body?.data?.status;
+        if (st === "success") await settleWithdrawalSuccess(db, w);
+        else if (st === "failed" || st === "reversed") await settleWithdrawalFailed(db, w, "transfer " + st);
+        else if (st === "otp") {
+          await settleWithdrawalFailed(db, w, "payout provider asked for manual confirmation");
+          await logMoneyAlert(db, w.userId, "payout_otp_required", { withdrawalId: w.id });
+        }
+        // 'pending' / 'queued' etc: leave it, the webhook will finish it.
+      } else if (r.status === 404) {
+        // Paystack has no such transfer, so nothing was sent: safe to refund.
+        await settleWithdrawalFailed(db, w, "transfer never created");
+      }
+      // any other answer: stay held and look again next hour.
+    } catch (e) { /* network issue: try again next hour */ }
+  }
+
+  // Same safety net for business refunds.
+  const { results: refunds } = await db
+    .prepare("SELECT * FROM business_refunds WHERE status = 'processing' AND requestedAt <= ? LIMIT 50")
+    .bind(cutoff)
+    .all();
+  for (const r of refunds || []) {
+    try {
+      const v = await psRequest(`/transfer/verify/${encodeURIComponent(r.id)}`, env.PAYSTACK_SECRET_KEY);
+      if (v.ok) {
+        const st = v.body?.data?.status;
+        if (st === "success") await settleRefundSuccess(db, r);
+        else if (st === "failed" || st === "reversed") await settleRefundFailed(db, r, "transfer " + st);
+        else if (st === "otp") {
+          await settleRefundFailed(db, r, "payout provider asked for manual confirmation");
+          await logMoneyAlert(db, r.userId, "payout_otp_required", { refundId: r.id });
+        }
+      } else if (v.status === 404) {
+        await settleRefundFailed(db, r, "transfer never created");
+      }
+    } catch (e) { /* try again next hour */ }
+  }
+
+  // Same safety net for revenue withdrawals.
+  const { results: revs } = await db
+    .prepare("SELECT * FROM revenue_withdrawals WHERE status = 'processing' AND requestedAt <= ? LIMIT 20")
+    .bind(cutoff)
+    .all();
+  for (const rv of revs || []) {
+    try {
+      const v = await psRequest(`/transfer/verify/${encodeURIComponent(rv.id)}`, env.PAYSTACK_SECRET_KEY);
+      if (v.ok) {
+        const st = v.body?.data?.status;
+        if (st === "success") await settleRevenueSuccess(db, rv);
+        else if (st === "failed" || st === "reversed") await settleRevenueFailed(db, rv, "transfer " + st);
+        else if (st === "otp") await settleRevenueFailed(db, rv, "payout provider asked for manual confirmation");
+      } else if (v.status === 404) {
+        await settleRevenueFailed(db, rv, "transfer never created");
+      }
+    } catch (e) { /* try again next hour */ }
+  }
+
+  await checkPayoutCover(env);
 }
 
 // ---------------------------------------------------------------------
@@ -887,6 +1830,9 @@ async function requestReserveWithdrawal(request, env) {
       .prepare("UPDATE reserve_withdrawals SET providerRef = ?, paystackStatus = ? WHERE id = ?")
       .bind(transferRes.data.transfer_code, transferRes.data.status, reserveId)
       .run();
+    if (transferRes.data.status === "otp") {
+      throw new Error("Paystack is asking for an OTP. Turn off 'Confirm transfers before sending' in your Paystack dashboard (Settings > Preferences), then try again.");
+    }
     return json({ success: true, status: transferRes.data.status, reference: reserveId });
   } catch (err) {
     const rollbackTime = new Date().toISOString();
@@ -967,50 +1913,52 @@ async function transferWebhook(request, env) {
       return new Response("OK", { status: 200 });
     }
 
-    // Otherwise a normal worker withdrawal
-    const withdrawal = await db.prepare("SELECT * FROM withdrawals WHERE id = ?").bind(reference).first();
-    if (!withdrawal) return new Response("OK (unknown reference, ignored)", { status: 200 });
-    if (withdrawal.status !== "processing") return new Response("OK (already handled)", { status: 200 });
-
-    if (event.event === "transfer.success") {
-      await db.prepare("UPDATE wallets SET pendingBalance = pendingBalance - ? WHERE uid = ?").bind(withdrawal.amount, withdrawal.userId).run();
-      await db.prepare("UPDATE withdrawals SET status = 'completed', processedAt = ? WHERE id = ?").bind(now, reference).run();
-      await db
-        .prepare(
-          `INSERT INTO notifications (id, userId, type, title, message, relatedId, read, createdAt)
-           VALUES (?, ?, 'withdrawal_completed', 'Withdrawal completed', ?, ?, 0, ?)`
-        )
-        .bind(crypto.randomUUID(), withdrawal.userId, `₦${withdrawal.amount} was sent to your bank account.`, reference, now)
-        .run();
-    } else {
-      await db
-        .prepare("UPDATE wallets SET availableBalance = availableBalance + ?, pendingBalance = pendingBalance - ? WHERE uid = ?")
-        .bind(withdrawal.amount, withdrawal.amount, withdrawal.userId)
-        .run();
-      await db
-        .prepare("UPDATE withdrawals SET status = 'failed', processedAt = ?, failureReason = ? WHERE id = ?")
-        .bind(now, event.data.failure_reason || event.event, reference)
-        .run();
-      await db
-        .prepare(
-          `INSERT INTO notifications (id, userId, type, title, message, relatedId, read, createdAt)
-           VALUES (?, ?, 'withdrawal_failed', 'Withdrawal failed', ?, ?, 0, ?)`
-        )
-        .bind(
-          crypto.randomUUID(),
-          withdrawal.userId,
-          `Your ₦${withdrawal.amount} withdrawal didn't go through — the amount is back in your available balance.`,
-          reference,
-          now
-        )
-        .run();
+    // Revenue withdrawal?
+    const revRow = await db.prepare("SELECT * FROM revenue_withdrawals WHERE id = ?").bind(reference).first();
+    if (revRow) {
+      if (revRow.status === "processing") {
+        if (event.event === "transfer.success") await settleRevenueSuccess(db, revRow);
+        else await settleRevenueFailed(db, revRow, event.data.failure_reason || event.event);
+      } else if (revRow.status === "failed" && event.event === "transfer.success") {
+        await db.prepare("UPDATE revenue_withdrawals SET status = 'needs_review' WHERE id = ? AND status = 'failed'").bind(reference).run();
+        await logMoneyAlert(db, revRow.requestedBy, "transfer_success_after_refund", { revenueWithdrawalId: reference, amount: revRow.amount });
+      }
+      return new Response("OK", { status: 200 });
     }
+
+    // Business balance refund?
+    const refundRow = await db.prepare("SELECT * FROM business_refunds WHERE id = ?").bind(reference).first();
+    if (refundRow) {
+      if (refundRow.status === "processing") {
+        if (event.event === "transfer.success") await settleRefundSuccess(db, refundRow);
+        else await settleRefundFailed(db, refundRow, event.data.failure_reason || event.event);
+      } else if (refundRow.status === "failed" && event.event === "transfer.success") {
+        await db.prepare("UPDATE business_refunds SET status = 'needs_review' WHERE id = ? AND status = 'failed'").bind(reference).run();
+        await logMoneyAlert(db, refundRow.userId, "transfer_success_after_refund", { refundId: reference, amount: refundRow.amount });
+      }
+      return new Response("OK", { status: 200 });
+    }
+
+    // Otherwise a normal worker withdrawal
+    const withdrawalRow = await db.prepare("SELECT * FROM withdrawals WHERE id = ?").bind(reference).first();
+    if (!withdrawalRow) return new Response("OK (unknown reference, ignored)", { status: 200 });
+
+    if (withdrawalRow.status === "processing") {
+      if (event.event === "transfer.success") await settleWithdrawalSuccess(db, withdrawalRow);
+      else await settleWithdrawalFailed(db, withdrawalRow, event.data.failure_reason || event.event);
+    } else if (withdrawalRow.status === "failed" && event.event === "transfer.success") {
+      // The bank money went out AFTER we had already refunded the user. Never auto-debit;
+      // park it for a human to review.
+      await db.prepare("UPDATE withdrawals SET status = 'needs_review' WHERE id = ? AND status = 'failed'").bind(reference).run();
+      await logMoneyAlert(db, withdrawalRow.userId, "transfer_success_after_refund", { withdrawalId: reference, amount: withdrawalRow.amount });
+    }
+    // anything else is a repeat delivery of something already settled: ignore.
   }
 
   return new Response("OK", { status: 200 });
 }
 
-  return { listBanks, resolveBankAccount, requestWithdrawal, requestReserveWithdrawal, transferWebhook };
+  return { listBanks, resolveBankAccount, requestWithdrawal, requestReserveWithdrawal, transferWebhook, reconcileWithdrawals, requestBusinessRefund, getMyBusinessRefunds, getPayoutCover, getAdminRevenue, requestRevenueWithdrawal };
 })();
 
 
@@ -1479,7 +2427,7 @@ async function verifyActivationPayment(request, env) {
   const verifyJson = await verifyRes.json();
 
   if (!verifyRes.ok || !verifyJson.status) {
-    return json({ success: false, message: "Could not reach Paystack to verify payment." }, 502);
+    return json({ success: false, message: "We could not verify the payment right now. Please try again in a moment." }, 502);
   }
   const txn = verifyJson.data;
   if (txn.status !== "success") {
@@ -1491,10 +2439,10 @@ async function verifyActivationPayment(request, env) {
   if (txn.amount !== expectedAmountKobo) {
     return json({
       success: false,
-      message: `Amount mismatch: expected ₦${expectedAmountNaira}, Paystack shows ₦${txn.amount / 100}.`,
+      message: `Amount mismatch: expected ₦${expectedAmountNaira}, the payment was ₦${txn.amount / 100}.`,
     });
   }
-  if (txn.metadata?.userId && txn.metadata.userId !== uid) {
+  if (txn.metadata?.userId !== uid) {
     return json({ message: "This payment reference belongs to a different account." }, 403);
   }
 
@@ -1979,7 +2927,7 @@ async function topUpBusinessWallet(request, env) {
   });
   const verifyJson = await verifyRes.json();
   if (!verifyRes.ok || !verifyJson.status) {
-    return json({ success: false, message: "Could not reach Paystack to verify payment." }, 502);
+    return json({ success: false, message: "We could not verify the payment right now. Please try again in a moment." }, 502);
   }
   const txn = verifyJson.data;
   if (txn.status !== "success") return json({ success: false, message: `Payment was not successful (status: ${txn.status}).` });
@@ -1987,7 +2935,7 @@ async function topUpBusinessWallet(request, env) {
 
   const amountNaira = txn.amount / 100;
   if (amountNaira < MIN_TOPUP) return json({ success: false, message: `Minimum top-up is ₦${MIN_TOPUP}.` });
-  if (txn.metadata?.userId && txn.metadata.userId !== uid) {
+  if (txn.metadata?.userId !== uid) {
     return json({ message: "This payment reference belongs to a different account." }, 403);
   }
 
@@ -2031,91 +2979,6 @@ async function topUpBusinessWallet(request, env) {
 })();
 
 
-// FROM: otp.js
-const otp = (function() {
-/**
- * Qapela — OTP Transfer Finalization (Cloudflare Workers + D1)
- * -----------------------------------------------------------------
- * Ported from functions/otp.js. Admin-only: Paystack sends the OTP to
- * whoever holds the Paystack account, so an admin has to type it in
- * manually to release transfers above your dashboard's OTP threshold.
- *
- * Routes (mounted in worker.js):
- *   GET  /admin/otp-transfers            (listPendingOtpTransfers)
- *   POST /admin/otp-transfers/finalize   { withdrawalId, otp }
- */
-
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
-}
-async function requireAdmin(db, uid) {
-  const row = await db.prepare("SELECT uid FROM admin_roles WHERE uid = ?").bind(uid).first();
-  return !!row;
-}
-
-async function listPendingOtpTransfers(request, env) {
-  const uid = await auth.requireAuth(request, env);
-  if (!uid) return json({ message: "Sign in required." }, 401);
-  const db = env.DB;
-  if (!(await requireAdmin(db, uid))) return json({ message: "Admin access required." }, 403);
-
-  const { results } = await db
-    .prepare(
-      `SELECT id, amount, accountName, accountNumber, bankName, requestedAt, providerRef
-       FROM withdrawals
-       WHERE status = 'processing' AND paystackStatus = 'otp'
-       ORDER BY requestedAt DESC
-       LIMIT 30`
-    )
-    .all();
-
-  return json({
-    withdrawals: results.map((w) => ({
-      id: w.id,
-      amount: w.amount,
-      accountDetails: { accountName: w.accountName, accountNumber: w.accountNumber, bankName: w.bankName },
-      requestedAt: w.requestedAt,
-      providerRef: w.providerRef,
-    })),
-  });
-}
-
-async function finalizeTransferOtp(request, env) {
-  const uid = await auth.requireAuth(request, env);
-  if (!uid) return json({ message: "Sign in required." }, 401);
-  const db = env.DB;
-  if (!(await requireAdmin(db, uid))) return json({ message: "Admin access required." }, 403);
-
-  const { withdrawalId, otp } = await request.json();
-  if (!withdrawalId || !otp) return json({ message: "withdrawalId and otp are required." }, 400);
-
-  const withdrawal = await db.prepare("SELECT * FROM withdrawals WHERE id = ?").bind(withdrawalId).first();
-  if (!withdrawal) return json({ message: "Withdrawal not found." }, 404);
-  if (withdrawal.paystackStatus !== "otp") {
-    return json({ success: false, message: "This withdrawal isn't waiting on OTP." });
-  }
-
-  const res = await fetch("https://api.paystack.co/transfer/finalize_transfer", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ transfer_code: withdrawal.providerRef, otp }),
-  });
-  const resJson = await res.json();
-  if (!res.ok || resJson.status === false) {
-    return json({ success: false, message: resJson.message || "Paystack rejected the OTP." });
-  }
-
-  await db
-    .prepare("UPDATE withdrawals SET paystackStatus = ?, otpSubmittedAt = ?, otpSubmittedBy = ? WHERE id = ?")
-    .bind(resJson.data.status || "pending", new Date().toISOString(), uid, withdrawalId)
-    .run();
-
-  return json({ success: true });
-}
-
-  return { listPendingOtpTransfers, finalizeTransferOtp };
-})();
 
 
 // FROM: music.js
@@ -2330,7 +3193,7 @@ async function purchaseSong(request, env) {
     headers: { Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}` },
   });
   const verifyJson = await verifyRes.json();
-  if (!verifyRes.ok || !verifyJson.status) return json({ message: "Could not reach Paystack to verify payment." }, 502);
+  if (!verifyRes.ok || !verifyJson.status) return json({ message: "We could not verify the payment right now. Please try again in a moment." }, 502);
 
   const txn = verifyJson.data;
   if (txn.status !== "success") return json({ success: false, message: `Payment was not successful (status: ${txn.status}).` });
@@ -2338,10 +3201,10 @@ async function purchaseSong(request, env) {
   if (txn.amount !== expectedAmountKobo) {
     return json({
       success: false,
-      message: `Amount mismatch: expected ₦${song.price}, Paystack shows ₦${txn.amount / 100}. The song's price may have changed after checkout opened.`,
+      message: `Amount mismatch: expected ₦${song.price}, the payment was ₦${txn.amount / 100}. The song's price may have changed after checkout opened.`,
     });
   }
-  if (txn.metadata?.fanId && txn.metadata.fanId !== fanId) {
+  if (txn.metadata?.fanId !== fanId || (txn.metadata?.songId && txn.metadata.songId !== songId)) {
     return json({ message: "This payment reference belongs to a different account." }, 403);
   }
 
@@ -2742,7 +3605,7 @@ async function paystackFetch(path, secret, options = {}) {
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", ...(options.headers || {}) },
   });
   const j = await res.json();
-  if (!res.ok || j.status === false) throw new Error(j.message || "Paystack request failed");
+  if (!res.ok || j.status === false) throw new Error(j.message || "Request failed");
   return j;
 }
 async function sendTransfer(secret, { amount, accountNumber, bankCode, accountName, reason, reference }) {
@@ -3014,13 +3877,16 @@ async function purchase(request, env) {
     headers: { Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}` },
   });
   const verifyJson = await verifyRes.json();
-  if (!verifyRes.ok || !verifyJson.status) return json({ success: false, message: "Could not reach Paystack to verify payment." }, 502);
+  if (!verifyRes.ok || !verifyJson.status) return json({ success: false, message: "We could not verify the payment right now. Please try again in a moment." }, 502);
 
   const txn = verifyJson.data;
   if (txn.status !== "success") return json({ success: false, message: `Payment was not successful (status: ${txn.status}).` });
   if (txn.currency !== "NGN") return json({ success: false, message: "Unexpected currency on transaction." });
   if (txn.amount !== expectedAmountKobo) {
-    return json({ success: false, message: `Amount mismatch: expected ₦${totalAmount}, Paystack shows ₦${txn.amount / 100}.` });
+    return json({ success: false, message: `Amount mismatch: expected ₦${totalAmount}, the payment was ₦${txn.amount / 100}.` });
+  }
+  if (String(txn.metadata?.affiliateCode || "").trim().toUpperCase() !== String(code).trim().toUpperCase()) {
+    return json({ success: false, message: "This payment doesn't match this product link." }, 403);
   }
 
   const feePct = await getAffiliateFeePct(db);
@@ -3032,13 +3898,17 @@ async function purchase(request, env) {
 
   // Log the sale as 'processing' BEFORE attempting transfers, so a sale
   // is never lost even if something goes wrong sending the money out.
-  await db
+  // Atomic claim of this payment: only one request can ever create the sale for a reference,
+  // so two simultaneous calls can't both trigger the payouts below.
+  const claim = await db
     .prepare(
       `INSERT INTO affiliate_sales (id, linkId, listingId, workerId, businessId, totalAmount, productAmount, workerCommission, platformFeePct, platformFee, businessPayout, provider, paymentRef, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paystack', ?, 'processing', ?)`
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paystack', ?, 'processing', ?
+       WHERE NOT EXISTS (SELECT 1 FROM affiliate_sales WHERE paymentRef = ?)`
     )
-    .bind(saleId, link.id, listing.id, link.workerId, listing.businessId, totalAmount, productAmount, workerCommission, feePct, platformFee, businessPayout, reference, now)
+    .bind(saleId, link.id, listing.id, link.workerId, listing.businessId, totalAmount, productAmount, workerCommission, feePct, platformFee, businessPayout, reference, now, reference)
     .run();
+  if (claim.meta.changes !== 1) return json({ success: true, alreadyProcessed: true });
 
   await db
     .prepare(
@@ -3278,6 +4148,9 @@ async function getPublicSettings(request, env) {
   return json({
     registrationFee: row.registrationFee,
     minWithdrawal: row.minWithdrawal,
+    maxWithdrawal: WITHDRAWAL_LIMITS.maxSingle,
+    dailyWithdrawalLimit: WITHDRAWAL_LIMITS.maxPerDay,
+    paystackPublicKey: env.PAYSTACK_PUBLIC_KEY || "",
     musicPlatformFeePct: row.musicPlatformFeePct,
     affiliatePlatformFeePct: row.affiliatePlatformFeePct,
   });
@@ -4108,6 +4981,7 @@ async function getDashboard(request, env) {
     openDisputes: openDisputes?.cnt ?? 0,
     otpPendingTransfers: otpPending?.cnt ?? 0,
     kycPending: kycPending?.cnt ?? 0,
+    payoutCover: await withdrawal.getPayoutCover(env),
   });
 }
 
@@ -4192,6 +5066,18 @@ export default {
       if (pathname === "/account/profile" && request.method === "POST") {
         return withCORS(await auth.updateProfile(request, env), renewedToken);
       }
+      if (pathname === "/account/contact" && request.method === "POST") {
+        return withCORS(await auth.changeContact(request, env), renewedToken);
+      }
+      if (pathname === "/account/password" && request.method === "POST") {
+        return withCORS(await auth.changePassword(request, env), renewedToken);
+      }
+      if (pathname === "/account/delete-check" && request.method === "GET") {
+        return withCORS(await auth.deleteCheck(request, env), renewedToken);
+      }
+      if (pathname === "/account/delete" && request.method === "POST") {
+        return withCORS(await auth.deleteAccount(request, env), renewedToken);
+      }
       if (pathname === "/account/business-profile" && request.method === "POST") {
         return withCORS(await auth.updateBusinessProfile(request, env), renewedToken);
       }
@@ -4267,11 +5153,20 @@ export default {
       if (pathname === "/banks/resolve" && request.method === "POST") {
         return withCORS(await withdrawal.resolveBankAccount(request, env), renewedToken);
       }
+      if (pathname === "/business/refunds" && request.method === "GET") {
+        return withCORS(await withdrawal.getMyBusinessRefunds(request, env), renewedToken);
+      }
+      if (pathname === "/business/refund" && request.method === "POST") {
+        return withCORS(await withdrawal.requestBusinessRefund(request, env), renewedToken);
+      }
       if (pathname === "/withdrawals" && request.method === "POST") {
         return withCORS(await withdrawal.requestWithdrawal(request, env), renewedToken);
       }
-      if (pathname === "/admin/reserve-withdrawals" && request.method === "POST") {
-        return withCORS(await withdrawal.requestReserveWithdrawal(request, env), renewedToken);
+      if (pathname === "/admin/revenue" && request.method === "GET") {
+        return withCORS(await withdrawal.getAdminRevenue(request, env), renewedToken);
+      }
+      if (pathname === "/admin/revenue/withdraw" && request.method === "POST") {
+        return withCORS(await withdrawal.requestRevenueWithdrawal(request, env), renewedToken);
       }
       if (pathname === "/webhooks/paystack-transfer" && request.method === "POST") {
         // no CORS needed — Paystack calls this server-to-server
@@ -4308,14 +5203,6 @@ export default {
       // ---- wallet top-up ----
       if (pathname === "/wallet/topup" && request.method === "POST") {
         return withCORS(await topup.topUpBusinessWallet(request, env), renewedToken);
-      }
-
-      // ---- OTP transfer finalization (admin) ----
-      if (pathname === "/admin/otp-transfers" && request.method === "GET") {
-        return withCORS(await otp.listPendingOtpTransfers(request, env), renewedToken);
-      }
-      if (pathname === "/admin/otp-transfers/finalize" && request.method === "POST") {
-        return withCORS(await otp.finalizeTransferOtp(request, env), renewedToken);
       }
 
       // ---- music marketplace ----
@@ -4480,5 +5367,6 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(cleanup.deleteExpiredTaskProofs(env));
     ctx.waitUntil(cleanup.expireReleasedSongs(env));
+    ctx.waitUntil(withdrawal.reconcileWithdrawals(env));
   },
 };

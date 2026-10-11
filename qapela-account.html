@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Qapela — Account Settings</title>
+<style>
+  :root{
+    --primary:#0B5CFF; --secondary:#0E2A6B; --neutral:#F8FAFF;
+    --bg:#F8FAFF; --card:#FFFFFF; --line:#E6EAF2;
+    --text:#1B2559; --muted:#6B7590; --green:#16A34A; --danger:#DC2626;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; max-width:420px; margin-left:auto; margin-right:auto; min-height:100vh; padding-bottom:40px;}
+  svg.ic{width:1em; height:1em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vertical-align:-0.15em;}
+  header.topbar{background:var(--secondary); color:#fff; padding:16px 18px 20px; border-radius:0 0 20px 20px;}
+  .topbar-row{display:flex; align-items:center; gap:10px;}
+  .back{font-size:19px; color:#fff; cursor:pointer;}
+  .qapela-wordmark{height:28px; width:auto; display:block;}
+  .page-title{font-size:13px; color:#B9C4E5; margin-left:auto;}
+  main{padding:18px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px;}
+  .card h3{font-size:13.5px; margin:0 0 4px; font-weight:700;}
+  .card p.sub{font-size:12px; color:var(--muted); margin:0 0 12px; line-height:1.5;}
+  .field{margin-bottom:13px;}
+  .field label{display:block; font-size:12px; font-weight:700; margin-bottom:6px;}
+  .field input{width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px; font-size:13.5px;}
+  .btn{width:100%; background:var(--primary); color:#fff; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:13.5px; cursor:pointer;}
+  .btn:disabled{background:var(--line); color:var(--muted); cursor:default;}
+  .btn.danger{background:var(--danger);}
+  .msg{font-size:12px; margin-top:10px; padding:9px 11px; border-radius:8px; line-height:1.5;}
+  .msg.ok{background:rgba(22,163,74,.08); color:var(--green);}
+  .msg.err{background:rgba(220,38,38,.08); color:var(--danger);}
+  .danger-zone{border-color:rgba(220,38,38,.35);}
+  .danger-zone h3{color:var(--danger);}
+  .blockers{margin:0 0 12px; padding:10px 12px 10px 28px; background:rgba(220,38,38,.06); border-radius:9px; font-size:12px; color:var(--danger); line-height:1.6;}
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+<defs><symbol id="i-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol></defs>
+</svg>
+
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="topbar-row">
+      <span class="back" onclick="history.back()"><svg class="ic"><use href="#i-back"/></svg></span>
+      <img class="qapela-wordmark" src="assets/qapela-wordmark.png" alt="Qapela">
+      <span class="page-title">Account settings</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <h3>Your name</h3>
+      <div class="field"><input type="text" id="f-name" placeholder="Full name"></div>
+      <button class="btn" id="nameBtn" onclick="saveName()">Save name</button>
+      <div id="nameMsg"></div>
+    </div>
+
+    <div class="card">
+      <h3>Email &amp; phone</h3>
+      <p class="sub">Used to sign in and to receive password reset emails. Enter your current password to change them.</p>
+      <div class="field"><label>Email</label><input type="email" id="f-email" autocomplete="email"></div>
+      <div class="field"><label>Phone</label><input type="tel" id="f-phone" autocomplete="tel"></div>
+      <div class="field"><label>Current password</label><input type="password" id="f-contact-pw" autocomplete="current-password"></div>
+      <button class="btn" id="contactBtn" onclick="saveContact()">Save email &amp; phone</button>
+      <div id="contactMsg"></div>
+    </div>
+
+    <div class="card">
+      <h3>Change password</h3>
+      <div class="field"><label>Current password</label><input type="password" id="f-old-pw" autocomplete="current-password"></div>
+      <div class="field"><label>New password</label><input type="password" id="f-new-pw" placeholder="At least 8 characters" autocomplete="new-password"></div>
+      <button class="btn" id="pwBtn" onclick="savePassword()">Change password</button>
+      <div id="pwMsg"></div>
+    </div>
+
+    <div class="card danger-zone">
+      <h3>Delete my account</h3>
+      <p class="sub">This permanently removes your personal details and signs you out everywhere. It can't be undone. Payment records are kept without your personal details.</p>
+      <div id="blockersBox"></div>
+      <div id="deleteForm">
+        <div class="field"><label>Your password</label><input type="password" id="f-del-pw" autocomplete="current-password"></div>
+        <div class="field"><label>Type DELETE to confirm</label><input type="text" id="f-del-confirm" placeholder="DELETE" autocapitalize="characters"></div>
+        <button class="btn danger" id="delBtn" onclick="deleteMyAccount()">Delete my account</button>
+      </div>
+      <div id="delMsg"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const API_BASE = "https://capella-api-5c6c.drthankgod08.workers.dev";
+
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(API_BASE + path, {
+      ...options,
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + localStorage.getItem("qapela_token"), ...(options.headers || {}) },
+    });
+    const renewed = res.headers.get("X-Renewed-Token");
+    if (renewed) localStorage.setItem("qapela_token", renewed);
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  function say(id, ok, text) {
+    const el = document.getElementById(id);
+    el.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "msg " + (ok ? "ok" : "err");
+    d.textContent = text;
+    el.appendChild(d);
+  }
+
+  async function busy(btnId, label, fn) {
+    const btn = document.getElementById(btnId);
+    const old = btn.textContent;
+    btn.disabled = true; btn.textContent = label;
+    try { await fn(); } finally { btn.disabled = false; btn.textContent = old; }
+  }
+
+  function signOutLocal() {
+    ["token", "uid", "role", "onboarded", "profile"].forEach(function (k) { localStorage.removeItem("qapela_" + k); });
+  }
+
+  async function init() {
+    if (!localStorage.getItem("qapela_token")) { window.location.href = "qapela-login.html"; return; }
+    const me = await apiFetch("/auth/me");
+    if (!me.ok) { signOutLocal(); window.location.href = "qapela-login.html"; return; }
+    document.getElementById("app").classList.remove("hidden");
+    document.getElementById("f-name").value = me.data.displayName || "";
+    document.getElementById("f-email").value = me.data.email || "";
+    document.getElementById("f-phone").value = me.data.phone || "";
+    loadDeleteCheck();
+  }
+
+  async function loadDeleteCheck() {
+    const { ok, data } = await apiFetch("/account/delete-check");
+    const box = document.getElementById("blockersBox");
+    box.innerHTML = "";
+    if (ok && data.blockers && data.blockers.length) {
+      const intro = document.createElement("div");
+      intro.style.cssText = "font-size:12px; font-weight:700; margin-bottom:6px;";
+      intro.textContent = "Before you can delete your account:";
+      const ul = document.createElement("ul");
+      ul.className = "blockers";
+      data.blockers.forEach(function (b) { const li = document.createElement("li"); li.textContent = b; ul.appendChild(li); });
+      box.appendChild(intro); box.appendChild(ul);
+      document.getElementById("deleteForm").classList.add("hidden");
+    } else {
+      document.getElementById("deleteForm").classList.remove("hidden");
+    }
+  }
+
+  window.saveName = function () {
+    return busy("nameBtn", "Saving…", async function () {
+      const name = document.getElementById("f-name").value.trim();
+      if (!name) { say("nameMsg", false, "Name can't be empty."); return; }
+      const { ok, data } = await apiFetch("/account/profile", { method: "POST", body: JSON.stringify({ name }) });
+      say("nameMsg", ok && data.success, ok && data.success ? "Saved." : (data.message || "Could not save."));
+    });
+  };
+
+  window.saveContact = function () {
+    return busy("contactBtn", "Saving…", async function () {
+      const email = document.getElementById("f-email").value.trim();
+      const phone = document.getElementById("f-phone").value.trim();
+      const currentPassword = document.getElementById("f-contact-pw").value;
+      if (!currentPassword) { say("contactMsg", false, "Enter your current password to confirm."); return; }
+      const { ok, data } = await apiFetch("/account/contact", { method: "POST", body: JSON.stringify({ email, phone, currentPassword }) });
+      if (ok && data.success) {
+        document.getElementById("f-contact-pw").value = "";
+        say("contactMsg", true, "Saved. Use your new details the next time you sign in.");
+      } else {
+        say("contactMsg", false, data.message || "Could not save.");
+      }
+    });
+  };
+
+  window.savePassword = function () {
+    return busy("pwBtn", "Saving…", async function () {
+      const currentPassword = document.getElementById("f-old-pw").value;
+      const newPassword = document.getElementById("f-new-pw").value;
+      if (!currentPassword || newPassword.length < 8) { say("pwMsg", false, "Enter your current password and a new one of at least 8 characters."); return; }
+      const { ok, data } = await apiFetch("/account/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) });
+      if (ok && data.success) {
+        document.getElementById("f-old-pw").value = ""; document.getElementById("f-new-pw").value = "";
+        say("pwMsg", true, "Password changed.");
+      } else {
+        say("pwMsg", false, data.message || "Could not change password.");
+      }
+    });
+  };
+
+  window.deleteMyAccount = function () {
+    return busy("delBtn", "Deleting…", async function () {
+      const password = document.getElementById("f-del-pw").value;
+      const confirmText = document.getElementById("f-del-confirm").value.trim();
+      if (!password) { say("delMsg", false, "Enter your password."); return; }
+      if (confirmText !== "DELETE") { say("delMsg", false, "Type DELETE to confirm."); return; }
+      if (!window.confirm("Delete your Qapela account permanently? This can't be undone.")) return;
+      const { ok, data } = await apiFetch("/account/delete", { method: "POST", body: JSON.stringify({ password, confirm: "DELETE" }) });
+      if (ok && data.success) {
+        signOutLocal();
+        document.getElementById("app").innerHTML = '<div style="padding:60px 24px; text-align:center;"><h2 style="margin:0 0 8px;">Account deleted</h2><p style="color:#6B7590; font-size:13.5px;">Your personal details have been removed. You can create a new account any time.</p><p><a href="index.html" style="color:#0B5CFF; font-weight:700;">Back to Qapela</a></p></div>';
+      } else {
+        say("delMsg", false, data.message || "Could not delete the account.");
+        loadDeleteCheck();
+      }
+    });
+  };
+
+  init();
+</script>
+</body>
+</html>
