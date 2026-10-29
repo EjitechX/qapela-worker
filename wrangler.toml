@@ -10,9 +10,16 @@ database_id = "bc8192e3-58ef-4c42-9016-6ed34bb93e7a"
 [triggers]
 crons = ["0 * * * *"]
 
+# Cloudflare Workers AI: reads task screenshots / written answers (admin turns it on per task).
+[ai]
+binding = "AI"
+
 # File storage (task-proof screenshots, song files) lives directly in
 # D1 as BLOB columns — no R2 needed.
 
-# Secrets (set in Cloudflare dashboard, NOT here):
+# Secrets (set in Cloudflare dashboard > Worker > Settings > Variables and Secrets, type "Secret", NOT here):
 #   PAYSTACK_SECRET_KEY
+#   PAYSTACK_PUBLIC_KEY    (the pk_live_... key; add it as a Secret so it survives every deploy)
 #   AUTH_SECRET
+#   BREVO_API_KEY          (password-reset emails; or RESEND_API_KEY instead)
+#   EMAIL_FROM_ADDRESS     (optional: the verified sender address; defaults to the support email)

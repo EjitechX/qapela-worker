@@ -121,3 +121,53 @@ The admin **Revenue** page (`qapela-admin-finance.html`) shows what Qapela earns
 - One revenue withdrawal at a time; failures put the money back exactly once; unconfirmed ones are settled by the hourly check.
 - Needs the `revenue_withdrawals` and `revenue_withdrawal_items` tables (already created in the live database).
 - The old "reserve withdrawal" form and endpoint were removed; the reserve is now one of the streams.
+
+## AI evidence checker (optional)
+
+Uses Cloudflare Workers AI. One-time setup:
+1. Add to `wrangler.toml`, then push:
+   ```
+   [ai]
+   binding = "AI"
+   ```
+2. Admin → Task Pricing → "AI screenshot & answer checker" → press **Accept Meta's licence** (Cloudflare requires this once for the vision model).
+3. Turn **AI Check** on per task, or for a whole category.
+
+How it behaves: it only ever approves clear cases (95% sure for high-risk tasks, 90% medium, 80% low; tasks with no risk set count as high). Doubtful, unreadable or errored checks, reused screenshots (matched by file hash) and a random 1 in 10 approvals all go to Task Reviews. It never rejects anyone. Written answers under 20 characters are never auto-approved. If the AI isn't set up or fails, everything simply waits for a human.
+Models are set at the top of `worker.js` (`AI_VISION_MODEL`, `AI_TEXT_MODEL`) in case Cloudflare renames them.
+
+## Artists (music side)
+
+Signup has a third option, **Artist**. Artists pay the same one-time activation fee as everyone else (the `registrationFee` setting, ₦5,000), and one activation unlocks Worker, Business and Artist modes. Once activated, artist-only accounts land in the studio (`qapela-musician.html`): Booth (stats + share link), Drop (release a track), Tracks (manage / upload audio), Press kit (profile form: stage name, tagline, genre, career stage, city, country, bio, Instagram, TikTok, YouTube, streaming link, website).
+- Anyone signed in can find artists on `qapela-artists.html` (linked from the worker app's bottom bar and the music marketplace): search, filter by genre, open a profile, **follow / unfollow**.
+- When an artist's audio upload completes, every follower gets a notification in their bell ("🎵 {artist} just dropped a track"). Once per song, max 3 drop alerts per artist per day. Artists are told when someone follows them.
+- DB additions (already applied to the live database): `users.roleMusician`, `unreleased_songs.notifiedAt`, `artist_follows` table, and profile columns on `musicians`.
+- Existing users can add the artist role through `POST /account/roles` with `{ "role": "artist" }`.
+
+## Help button
+
+`assets/qapela-help.js` adds a floating **Help** button with a WhatsApp assistant (+234 903 930 0602) and an email assistant (qapela.zrofeet@gmail.com). It is included on the music marketplace, affiliate marketplace, business affiliate listings, artists page, affiliate checkout and the artist studio. To add it to any other page, put `<script src="assets/qapela-help.js" defer></script>` before `</body>`. Contact details are at the top of that file.
+
+## Staying signed in
+
+- By default a device stays signed in until the app has gone **6 months** without being used (the session slides forward every time it's used).
+- Account settings → **Staying signed in** lets each user pick, per device: sign in again every time the app is closed, after 24 hours of not using it, or after 6 months (default).
+- The server issues the matching token lifetime (`SESSION_TTL` at the top of `worker.js`). `assets/qapela-session.js` (included in every app page's `<head>`) handles the "when I close the app" option, which only the device can detect.
+- Admin accounts are always capped at 24 hours of inactivity, whatever they choose.
+- The Worker now exposes the `X-Renewed-Token` header to the browser (`Access-Control-Expose-Headers`). Before this, browsers could not read it, so sessions never actually extended.
+
+## Email verification & the daily email budget
+
+- Everyone who registers with an email gets **one** email that both welcomes them and asks them to confirm the address (`qapela-verify-email.html`). The link works for 24 hours from when it was sent. Until it is confirmed the account works normally, but **withdrawals and business refunds are locked**. A banner on every app page offers a Resend link; changing your email in Account settings requires verifying the new one.
+- **Budget (the free Brevo plan's 300/day):** 250 for verification emails, 50 for password resets (`EMAIL_DAILY` at the top of `worker.js`). A "day" is the UTC day, which starts at **1:00 AM Nigeria time**.
+- When a bucket is used up, new emails are **queued**. Password-reset requesters see a popup saying the email arrives tomorrow; the hourly job sends the queue as soon as the new day starts (oldest first), and each link's 24 hours start from the moment it is actually sent. A queued link cannot be used before it is sent.
+- Password-reset links last **24 hours**; only the newest link works. Protection against abuse: 5 requests per hour per network address, one email per account per 10 minutes, 3 per day per account. The answer is identical whether or not the account exists.
+- Admin dashboard shows today's usage and how many emails are waiting for tomorrow.
+- DB (already applied to the live database): `users.emailVerified`, `password_resets.emailStatus/sentAt`, tables `email_verifications`, `email_log`, `reset_attempts`.
+
+
+## Link previews (Open Graph)
+
+Every page has Open Graph / Twitter tags in its `<head>` so that when a Qapela link is shared (WhatsApp, Telegram, Facebook, X…), it shows the Qapela logo card (`assets/qapela-share.jpg`, 1200×630), a title and a one-line description. Pages also have a favicon / home-screen icon.
+- The preview image and page URLs in those tags are absolute and currently point to `https://ejitechx.github.io/qapela-worker/`. **If the site moves to a custom domain, replace that address in all pages** (search the pages for `ejitechx.github.io/qapela-worker`) and in `SITE_BASE` in `worker.js`.
+- Chat apps remember previews. To see a change on a link you shared before, share it with something extra on the end, for example `?v=2`.

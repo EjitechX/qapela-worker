@@ -3,299 +3,424 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Qapela — Musician</title>
+<!-- qapela-og -->
+<meta name="description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="theme-color" content="#0E2A6B">
+<link rel="icon" type="image/png" href="assets/qapela-logo-icon.png">
+<link rel="apple-touch-icon" href="assets/qapela-logo-icon.png">
+<meta property="og:site_name" content="Qapela">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Qapela Studio">
+<meta property="og:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta property="og:url" content="https://ejitechx.github.io/qapela-worker/qapela-musician.html">
+<meta property="og:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Qapela — Work. Earn. Grow.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Qapela Studio">
+<meta name="twitter:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="twitter:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+
+<script src="assets/qapela-session.js"></script>
+<title>Qapela Studio</title>
 <style>
   :root{
-    --primary:#0B5CFF; --secondary:#0E2A6B; --accent:#F5B301; --neutral:#F8FAFF;
-    --bg:#F8FAFF; --card:#FFFFFF; --line:#E6EAF2;
-    --text:#1B2559; --muted:#6B7590; --green:#16A34A; --danger:#DC2626;
+    --bg:#08080F; --panel:#12121F; --panel2:#1A1A2C; --line:#2A2A40; --text:#EEF0FF; --muted:#8A8DAA;
+    --blue:#3B82F6; --pink:#EC4899; --amber:#F59E0B; --green:#22C55E; --red:#EF4444;
+    --glow:0 0 22px rgba(236,72,153,.35);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  body{margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; max-width:460px; margin-left:auto; margin-right:auto; min-height:100vh; padding-bottom:30px;}
-  svg.ic{width:1em; height:1em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vertical-align:-0.15em;}
+  html{background:var(--bg);}
+  body{margin:0; background:radial-gradient(1200px 500px at 50% -120px,#1B1240 0%,var(--bg) 60%); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; max-width:460px; margin:0 auto; min-height:100vh; padding-bottom:84px;}
+  .hidden{display:none !important;}
+  svg.ic{width:1.1em; height:1.1em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vertical-align:-0.18em;}
 
-  header.topbar{background:var(--secondary); color:#fff; padding:16px 18px 20px; border-radius:0 0 20px 20px;}
-  .topbar-row{display:flex; align-items:center; justify-content:space-between;}
-  .brand{display:flex; align-items:center; gap:9px; font-weight:800; font-size:16px;}
-  .logo-mark{width:26px; height:26px; border-radius:7px; flex-shrink:0; background:linear-gradient(135deg,var(--primary),var(--accent)); display:flex; align-items:center; justify-content:center;}
-  .switch-links{display:flex; gap:10px; font-size:11px;}
-  .switch-links a{color:#B9C4E5; text-decoration:none; font-weight:600;}
+  /* top bar */
+  .topbar{display:flex; align-items:center; justify-content:space-between; padding:14px 16px 6px;}
+  .brand{display:flex; align-items:center; gap:9px; font-weight:800; letter-spacing:.14em; font-size:12px; color:var(--muted);}
+  .brand img{width:26px; height:26px; border-radius:8px; background:#011650;}
+  .brand b{color:var(--text);}
+  .top-actions{display:flex; gap:10px; align-items:center; position:relative;}
+  .icon-btn{width:38px; height:38px; border-radius:12px; background:var(--panel); border:1px solid var(--line); color:var(--text); display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative;}
+  .dot{position:absolute; top:-5px; right:-5px; min-width:17px; height:17px; border-radius:9px; background:var(--pink); color:#fff; font-size:10px; font-weight:800; display:none; align-items:center; justify-content:center; padding:0 4px;}
+  #notifPanel{display:none; position:absolute; top:46px; right:0; width:290px; max-height:380px; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:14px; z-index:30; box-shadow:0 12px 40px rgba(0,0,0,.6);}
+  #notifPanel .nh{display:flex; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--line); font-size:12.5px; font-weight:700;}
+  #notifPanel .nh span{color:var(--blue); cursor:pointer; font-weight:600;}
+  .nrow{padding:10px 14px; border-bottom:1px solid var(--line);} .nrow.unread{background:rgba(59,130,246,.08);}
+  .nrow b{display:block; font-size:12.5px;} .nrow small{color:var(--muted); font-size:11.5px; line-height:1.4; display:block; margin-top:2px;}
 
-  main{padding:16px;}
+  main{padding:8px 16px 0;}
 
-  .setup-card{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px; text-align:center;}
-  .setup-card h2{font-size:16px; margin:0 0 8px;}
-  .setup-card p{font-size:12.5px; color:var(--muted); margin:0 0 16px; line-height:1.5;}
-  .setup-card input{width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px; font-size:13.5px; box-sizing:border-box; margin-bottom:12px;}
+  /* booth hero */
+  .booth{position:relative; overflow:hidden; border-radius:22px; padding:20px 18px 18px; background:linear-gradient(145deg,#1B1240 0%,#2A0F3D 55%,#12121F 100%); border:1px solid var(--line); box-shadow:var(--glow);}
+  .onair{display:inline-flex; align-items:center; gap:7px; font-size:10.5px; font-weight:800; letter-spacing:.16em; padding:5px 11px; border-radius:20px; border:1px solid var(--line); color:var(--muted); background:rgba(0,0,0,.3);}
+  .onair i{width:8px; height:8px; border-radius:50%; background:var(--muted);}
+  .onair.live{color:#fff; border-color:rgba(239,68,68,.6); background:rgba(239,68,68,.18);}
+  .onair.live i{background:var(--red); box-shadow:0 0 10px var(--red); animation:pulse 1.2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .who{display:flex; align-items:center; gap:14px; margin-top:14px;}
+  .avatar{width:68px; height:68px; border-radius:50%; background:conic-gradient(from 200deg,var(--blue),var(--pink),var(--amber),var(--blue)); padding:3px; flex-shrink:0;}
+  .avatar div{width:100%; height:100%; border-radius:50%; background:#0F0F1C; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:800;}
+  .who h1{margin:0; font-size:21px; line-height:1.15; word-break:break-word;}
+  .who p{margin:3px 0 0; font-size:12.5px; color:var(--muted); line-height:1.4;}
+  .eq{display:flex; gap:4px; align-items:flex-end; height:34px; margin-top:16px;}
+  .eq span{width:6px; border-radius:3px; background:linear-gradient(to top,var(--blue),var(--pink)); animation:eq 1.1s ease-in-out infinite;}
+  .eq span:nth-child(1){animation-delay:-.9s;height:35%} .eq span:nth-child(2){animation-delay:-.7s;height:70%} .eq span:nth-child(3){animation-delay:-.5s;height:50%}
+  .eq span:nth-child(4){animation-delay:-.3s;height:90%} .eq span:nth-child(5){animation-delay:-.1s;height:60%} .eq span:nth-child(6){animation-delay:-.6s;height:80%}
+  .eq span:nth-child(7){animation-delay:-.4s;height:45%} .eq span:nth-child(8){animation-delay:-.2s;height:65%} .eq span:nth-child(9){animation-delay:-.8s;height:30%}
+  @keyframes eq{0%,100%{transform:scaleY(.35)}50%{transform:scaleY(1)}}
+  .eq span{transform-origin:bottom;}
+  .eq.off span{animation:none; transform:scaleY(.25); opacity:.4;}
 
-  .stats-row{display:flex; gap:10px; margin-bottom:16px;}
-  .stat-card{flex:1; background:var(--card); border:1px solid var(--line); border-radius:13px; padding:12px; text-align:center;}
-  .stat-card .value{font-size:16px; font-weight:800; color:var(--secondary);}
-  .stat-card .label{font-size:10px; color:var(--muted); font-weight:700; text-transform:uppercase; margin-top:4px;}
+  /* VU stat tiles */
+  .meters{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:14px 0;}
+  .meter{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:13px 14px;}
+  .meter .lbl{font-size:10.5px; letter-spacing:.12em; color:var(--muted); font-weight:700;}
+  .meter .val{font-size:24px; font-weight:800; margin:4px 0 8px;}
+  .meter .bar{height:5px; border-radius:3px; background:var(--panel2); overflow:hidden;}
+  .meter .bar i{display:block; height:100%; border-radius:3px; background:linear-gradient(90deg,var(--green),var(--amber),var(--pink)); width:8%; transition:width .6s;}
 
-  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px;}
-  .card h3{font-size:13.5px; margin:0 0 12px; font-weight:700;}
-  .field{margin-bottom:12px;}
-  .field label{display:block; font-size:12px; font-weight:700; margin-bottom:6px;}
-  .field input, .field textarea{width:100%; padding:10px 11px; border:1px solid var(--line); border-radius:9px; font-size:13px; box-sizing:border-box; font-family:inherit;}
-  .field textarea{min-height:60px; resize:vertical;}
-  .field .hint{font-size:11px; color:var(--muted); margin-top:5px; line-height:1.4;}
-  .btn{width:100%; background:var(--primary); color:#fff; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:13.5px; cursor:pointer;}
-  .btn:disabled{background:var(--line); color:var(--muted);}
-  .msg{font-size:12px; margin-top:10px; padding:9px 11px; border-radius:8px;}
-  .msg.ok{background:rgba(22,163,74,.08); color:var(--green);}
-  .msg.err{background:rgba(220,38,38,.08); color:var(--danger);}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:16px; margin-bottom:14px;}
+  .card h3{margin:0 0 4px; font-size:15px;} .card .sub{font-size:12px; color:var(--muted); margin:0 0 14px; line-height:1.5;}
+  .field{margin-bottom:13px;} .field label{display:block; font-size:11.5px; font-weight:700; letter-spacing:.04em; margin-bottom:6px; color:#C9CBE6;}
+  .field input,.field select,.field textarea{width:100%; padding:12px 13px; background:var(--panel2); border:1px solid var(--line); border-radius:12px; color:var(--text); font-size:14px; font-family:inherit; outline:none;}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--blue); box-shadow:0 0 0 3px rgba(59,130,246,.18);}
+  .field textarea{min-height:92px; resize:vertical;} .field select option{background:#1A1A2C;}
+  .hint{font-size:11px; color:var(--muted); margin-top:5px; line-height:1.45;}
+  .two{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .btn{width:100%; border:none; border-radius:14px; padding:14px; font-size:14.5px; font-weight:800; color:#fff; cursor:pointer; background:linear-gradient(90deg,var(--blue),var(--pink)); box-shadow:var(--glow);}
+  .btn:disabled{opacity:.55; cursor:default;}
+  .btn.ghost{background:var(--panel2); box-shadow:none; border:1px solid var(--line); font-weight:700; color:var(--text);}
+  .msg{font-size:12.5px; padding:10px 12px; border-radius:11px; margin:10px 0; line-height:1.5;}
+  .msg.ok{background:rgba(34,197,94,.12); color:#86EFAC;} .msg.err{background:rgba(239,68,68,.12); color:#FCA5A5;}
+  .empty{text-align:center; color:var(--muted); font-size:13px; padding:22px 8px;}
 
-  .song-row{border:1px solid var(--line); border-radius:12px; padding:13px 15px; margin-bottom:10px;}
-  .song-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
-  .song-top h4{margin:0; font-size:13.5px;}
-  .song-meta{font-size:11.5px; color:var(--muted); margin-top:3px;}
-  .song-stats{display:flex; gap:16px; margin-top:10px; font-size:12px;}
-  .song-stats strong{display:block; font-size:14px; color:var(--secondary);}
-  .badge{font-size:10px; font-weight:700; padding:3px 9px; border-radius:20px;}
-  .badge.active{background:rgba(22,163,74,.12); color:var(--green);}
-  .badge.removed, .badge.expired{background:var(--neutral); color:var(--muted); border:1px solid var(--line);}
-  .file-status{margin-top:10px; font-size:11.5px;}
-  .file-status.needs-file{color:#92400E;}
-  .toggle-btn{margin-top:10px; width:100%; background:var(--neutral); border:1px solid var(--line); color:var(--text); padding:8px; border-radius:8px; font-weight:700; font-size:11.5px; cursor:pointer;}
-  .empty{color:var(--muted); font-size:13px; text-align:center; padding:20px 0;}
-  .hidden{display:none;}
+  .progress{height:8px; background:var(--panel2); border-radius:5px; overflow:hidden; margin:8px 0 4px;} .progress i{display:block; height:100%; background:linear-gradient(90deg,var(--blue),var(--pink)); border-radius:5px; width:0;}
+
+  .drop{border:1.5px dashed var(--line); border-radius:14px; padding:16px; text-align:center; font-size:12.5px; color:var(--muted); background:var(--panel2);}
+  .drop input{margin-top:8px; width:100%; font-size:12.5px; color:var(--text);}
+
+  .track{background:var(--panel2); border:1px solid var(--line); border-radius:14px; padding:13px; margin-bottom:10px;}
+  .track-top{display:flex; justify-content:space-between; gap:8px; align-items:flex-start;}
+  .track h4{margin:0; font-size:14.5px;} .track .meta{font-size:11.5px; color:var(--muted); margin-top:3px; line-height:1.5;}
+  .badge{font-size:10px; font-weight:800; letter-spacing:.08em; padding:4px 9px; border-radius:20px; text-transform:uppercase; flex-shrink:0;}
+  .badge.active{background:rgba(34,197,94,.15); color:#86EFAC;} .badge.expired,.badge.removed{background:rgba(138,141,170,.15); color:var(--muted);}
+  .track-stats{display:flex; gap:18px; margin-top:9px; font-size:11.5px; color:var(--muted);} .track-stats strong{display:block; color:var(--text); font-size:15px;}
+  .track-actions{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+  .mini{border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:10px; padding:8px 12px; font-size:12px; font-weight:700; cursor:pointer;} .mini.danger{color:#FCA5A5;}
+
+  .links a{display:block; color:var(--blue); font-size:13px; padding:8px 0; text-decoration:none; border-bottom:1px solid var(--line);} .links a:last-child{border:none;}
+
+  /* bottom console tabs */
+  .tabbar{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:460px; display:grid; grid-template-columns:repeat(4,1fr); background:rgba(14,14,26,.94); backdrop-filter:blur(10px); border-top:1px solid var(--line); padding:8px 6px calc(8px + env(safe-area-inset-bottom,0px)); z-index:20;}
+  .tab{display:flex; flex-direction:column; align-items:center; gap:4px; font-size:10.5px; font-weight:700; color:var(--muted); cursor:pointer; padding:5px 0; border-radius:12px;}
+  .tab svg{width:21px; height:21px;} .tab.active{color:#fff;} .tab.active svg{color:var(--pink); filter:drop-shadow(0 0 6px rgba(236,72,153,.7));}
+  #toast{position:fixed; bottom:92px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--panel2); border:1px solid var(--line); padding:11px 16px; border-radius:12px; font-size:13px; opacity:0; transition:.25s; z-index:50; pointer-events:none;} #toast.show{opacity:1; transform:translateX(-50%);}
 </style>
-<link rel="stylesheet" href="assets/qapela-theme.css">
 </head>
 <body>
 
 <div id="app" class="hidden">
-  <header class="topbar">
-    <div class="topbar-row">
-      <div class="brand">
-        <div class="logo-mark"><img class="qapela-logo-img" src="assets/qapela-logo-icon.png" alt="Qapela mark" style="width:15px;height:15px;"></div>
-        Musician
+  <div class="topbar">
+    <div class="brand"><img src="assets/qapela-logo-icon.png" alt="Qapela"> <span><b>STUDIO</b> · QAPELA</span></div>
+    <div class="top-actions">
+      <div class="icon-btn" onclick="toggleNotifPanel()" aria-label="Notifications">
+        <svg class="ic"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot" id="notifCount">0</span>
       </div>
-      <div class="switch-links">
-        <a href="qapela-worker.html">Worker</a>
-        <a href="qapela-business.html">Business</a>
-        <a href="qapela-music-marketplace.html">Marketplace</a>
-        <a href="qapela-account.html">Account</a>
-      </div>
+      <div id="notifPanel"><div class="nh">Alerts <span onclick="markAllNotifsRead()">Mark all read</span></div><div id="notifList"></div></div>
     </div>
-  </header>
+  </div>
 
   <main>
-    <div id="setupPrompt" class="setup-card hidden">
-      <h2>Set up your artist profile</h2>
-      <p>No activation fee for musicians — just tell fans who you are, then start uploading unreleased tracks.</p>
-      <input type="text" id="artistNameInput" placeholder="Artist / stage name">
-      <button class="btn" onclick="setUpMusician()">Get Started</button>
-      <div id="setupMsg"></div>
-    </div>
+    <!-- ============ BOOTH ============ -->
+    <section id="tab-booth">
+      <div class="booth">
+        <span class="onair" id="onair"><i></i><span id="onairText">OFF AIR</span></span>
+        <div class="who">
+          <div class="avatar"><div id="avatarInitial">♪</div></div>
+          <div><h1 id="stageName">Your Studio</h1><p id="tagline">Finish your profile to open the doors.</p></div>
+        </div>
+        <div class="eq off" id="eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      </div>
 
-    <div id="mainContent" class="hidden">
-      <div class="stats-row">
-        <div class="stat-card"><div class="value" id="statSongs">0</div><div class="label">Songs</div></div>
-        <div class="stat-card"><div class="value" id="statSales">0</div><div class="label">Sales</div></div>
-        <div class="stat-card"><div class="value" id="statRevenue">₦0</div><div class="label">Revenue</div></div>
+      <div class="meters">
+        <div class="meter"><div class="lbl">FOLLOWERS</div><div class="val" id="mFollowers">0</div><div class="bar"><i id="bFollowers"></i></div></div>
+        <div class="meter"><div class="lbl">TRACKS</div><div class="val" id="mTracks">0</div><div class="bar"><i id="bTracks"></i></div></div>
+        <div class="meter"><div class="lbl">SALES</div><div class="val" id="mSales">0</div><div class="bar"><i id="bSales"></i></div></div>
+        <div class="meter"><div class="lbl">EARNED</div><div class="val" id="mEarned">₦0</div><div class="bar"><i id="bEarned"></i></div></div>
       </div>
 
       <div class="card">
-        <h3>Upload a Track</h3>
-        <div class="field"><label>Song Title</label><input type="text" id="f-title" placeholder="e.g. Midnight (Unreleased)"></div>
-        <div class="field"><label>Description</label><textarea id="f-desc" placeholder="Tell fans what makes this one special"></textarea></div>
-        <div class="field">
-          <label>Price Fans Pay to Unlock (₦)</label>
-          <input type="number" id="f-price" placeholder="e.g. 500">
-          <div class="hint" id="feeHint">Platform takes a cut — you set the price, you keep the rest.</div>
+        <h3>🎙️ Your fans get an alert when you drop</h3>
+        <p class="sub">Anyone who follows you is notified the moment a track goes live. Share your artist page so more people can find and follow you.</p>
+        <button class="btn" onclick="copyShare()">Copy my artist page link</button>
+      </div>
+      <div class="card">
+        <h3>Quick links</h3>
+        <div class="links" id="quickLinks">
+          <a href="qapela-wallet.html">💰 Wallet &amp; withdraw earnings</a>
+          <a href="qapela-music-marketplace.html">🎧 Music marketplace</a>
+          <a href="qapela-artists.html">🔎 Discover other artists</a>
+          <a href="qapela-account.html">⚙️ Account settings</a>
+          <a href="#" id="linkWorker" class="hidden">🧑‍💻 Worker dashboard</a>
+          <a href="#" id="linkBusiness" class="hidden">🏢 Business dashboard</a>
+          <a href="#" onclick="doSignOut();return false;">↩︎ Sign out</a>
         </div>
-        <div class="field">
-          <label>Official Release Date</label>
-          <input type="date" id="f-releasedate">
-          <div class="hint">Must be in the future — once it passes, the track auto-clears since it's out on streaming platforms.</div>
+      </div>
+    </section>
+
+    <!-- ============ DROP ============ -->
+    <section id="tab-drop" class="hidden">
+      <div class="card">
+        <h3>Drop a track</h3>
+        <p class="sub">Put an unreleased song up for sale. Fans pay to unlock it before it's out everywhere. Your followers are alerted when it goes live.</p>
+        <div class="field"><label>TRACK TITLE</label><input type="text" id="f-title" maxlength="80" placeholder="e.g. Midnight (Unreleased)"></div>
+        <div class="field"><label>THE STORY</label><textarea id="f-desc" maxlength="500" placeholder="What makes this one special?"></textarea></div>
+        <div class="two">
+          <div class="field"><label>UNLOCK PRICE (₦)</label><input type="number" id="f-price" min="50" placeholder="500"></div>
+          <div class="field"><label>OFFICIAL RELEASE</label><input type="date" id="f-releasedate"></div>
         </div>
-        <div class="field">
-          <label>Audio File</label>
-          <input type="file" id="f-audiofile" accept="audio/*">
-          <div class="hint">Uploaded after the listing is created — max 15MB.</div>
+        <div class="hint" id="feeHint" style="margin:-6px 0 12px;">Platform takes a cut — you set the price, you keep the rest.</div>
+        <div class="field"><label>AUDIO FILE</label>
+          <div class="drop">Export your mix and add it here<input type="file" id="f-audiofile" accept="audio/*"></div>
+          <div class="hint">Max 15MB. The track goes live to fans once the audio is uploaded. After the release date it clears automatically, since it's out on streaming platforms by then.</div>
         </div>
         <div id="uploadMsg"></div>
-        <button class="btn" id="publishBtn" onclick="uploadSong()">Publish Track</button>
+        <button class="btn" id="publishBtn" onclick="uploadSong()">Drop it 🎚️</button>
       </div>
+    </section>
 
+    <!-- ============ TRACKS ============ -->
+    <section id="tab-tracks" class="hidden">
+      <div class="card"><h3>Your tracks</h3><p class="sub">Everything you've dropped, with sales as they come in.</p><div id="songsList"><div class="empty">Loading…</div></div></div>
+    </section>
+
+    <!-- ============ PROFILE / PRESS KIT ============ -->
+    <section id="tab-profile" class="hidden">
       <div class="card">
-        <h3>Your Tracks</h3>
-        <div id="songsList"><div class="empty">Loading…</div></div>
+        <h3>Your press kit</h3>
+        <p class="sub" id="setupNote">This is what fans see when they find you in Discover. Complete profiles get followed more.</p>
+        <div class="progress"><i id="pBar"></i></div><div class="hint" id="pText">Profile 0% complete</div>
       </div>
-    </div>
+      <div class="card">
+        <div class="field"><label>STAGE / ARTIST NAME *</label><input type="text" id="p-name" maxlength="40" placeholder="e.g. DJ Lagos Gold" oninput="updatePreview()"></div>
+        <div class="field"><label>TAGLINE</label><input type="text" id="p-tagline" maxlength="90" placeholder="One line that sums up your sound" oninput="updatePreview()"></div>
+        <div class="two">
+          <div class="field"><label>MAIN GENRE</label><select id="p-genre" onchange="updatePreview()"><option value="">Choose</option><option>Afrobeats</option><option>Afro-pop</option><option>Amapiano</option><option>Hip-hop / Rap</option><option>R&amp;B</option><option>Gospel</option><option>Highlife</option><option>Fuji / Juju</option><option>Dancehall / Reggae</option><option>Pop</option><option>Rock / Alternative</option><option>Electronic / DJ</option><option>Other</option></select></div>
+          <div class="field"><label>WHERE ARE YOU IN YOUR CAREER?</label><select id="p-stage"><option value="">Choose</option><option>Upcoming</option><option>Independent</option><option>Signed</option><option>Established</option></select></div>
+        </div>
+        <div class="two">
+          <div class="field"><label>CITY</label><input type="text" id="p-city" maxlength="60" placeholder="Lagos" oninput="updatePreview()"></div>
+          <div class="field"><label>COUNTRY</label><input type="text" id="p-country" maxlength="60" placeholder="Nigeria"></div>
+        </div>
+        <div class="field"><label>BIO</label><textarea id="p-bio" maxlength="600" placeholder="Your story, your influences, what fans can expect…" oninput="updatePreview()"></textarea><div class="hint"><span id="bioCount">0</span>/600</div></div>
+        <div class="two">
+          <div class="field"><label>INSTAGRAM</label><input type="text" id="p-instagram" maxlength="60" placeholder="@yourhandle"></div>
+          <div class="field"><label>TIKTOK</label><input type="text" id="p-tiktok" maxlength="60" placeholder="@yourhandle"></div>
+        </div>
+        <div class="field"><label>YOUTUBE LINK</label><input type="url" id="p-youtube" maxlength="200" placeholder="youtube.com/@yourchannel"></div>
+        <div class="field"><label>STREAMING LINK (SPOTIFY / AUDIOMACK / BOOMPLAY / APPLE)</label><input type="url" id="p-streaming" maxlength="200" placeholder="https://…"></div>
+        <div class="field"><label>WEBSITE</label><input type="url" id="p-website" maxlength="200" placeholder="https://…"></div>
+        <div id="profileMsg"></div>
+        <button class="btn" id="saveProfileBtn" onclick="saveProfile()">Save press kit</button>
+      </div>
+      <div class="card"><h3>How fans see you</h3>
+        <div class="who" style="margin-top:8px;"><div class="avatar" style="width:54px;height:54px;"><div id="pvInitial" style="font-size:19px;">♪</div></div>
+          <div><b id="pvName" style="font-size:16px;">Your name</b><p id="pvLine" style="margin:3px 0 0;font-size:12px;color:var(--muted);">Genre · City</p><p id="pvTag" style="margin:3px 0 0;font-size:12px;"></p></div></div>
+      </div>
+    </section>
   </main>
+
+  <nav class="tabbar">
+    <div class="tab active" data-t="booth" onclick="showTab('booth')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>Booth</div>
+    <div class="tab" data-t="drop" onclick="showTab('drop')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Drop</div>
+    <div class="tab" data-t="tracks" onclick="showTab('tracks')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></svg>Tracks</div>
+    <div class="tab" data-t="profile" onclick="showTab('profile')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Press kit</div>
+  </nav>
 </div>
+<div id="toast"></div>
 
 <script>
   const API_BASE = "https://capella-api-5c6c.drthankgod08.workers.dev";
-  let mySongs = [];
+  let me = null, profile = null, mySongs = [];
 
   async function apiFetch(path, options = {}) {
-    const res = await fetch(API_BASE + path, {
-      ...options,
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + localStorage.getItem("qapela_token"), ...(options.headers || {}) },
-    });
+    const res = await fetch(API_BASE + path, { ...options, headers: { "Content-Type": "application/json", Authorization: "Bearer " + localStorage.getItem("qapela_token"), ...(options.headers || {}) } });
     const renewed = res.headers.get("X-Renewed-Token");
     if (renewed) localStorage.setItem("qapela_token", renewed);
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
   }
-
-  function escapeHtml(str) {
-    return String(str).replace(/[&<>"']/g, s => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s]));
-  }
+  function escapeHtml(str) { return String(str == null ? "" : str).replace(/[&<>"']/g, s => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s])); }
+  function toast(m) { const t = document.getElementById("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2400); }
+  function say(id, ok, text) { document.getElementById(id).innerHTML = '<div class="msg ' + (ok ? "ok" : "err") + '">' + escapeHtml(text) + "</div>"; }
+  window.doSignOut = function () { ["token", "uid", "role", "onboarded", "profile"].forEach(k => localStorage.removeItem("qapela_" + k)); window.location.href = "qapela-login.html"; };
+  window.showTab = function (t) {
+    ["booth", "drop", "tracks", "profile"].forEach(x => document.getElementById("tab-" + x).classList.toggle("hidden", x !== t));
+    document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.dataset.t === t));
+    window.scrollTo(0, 0);
+  };
 
   async function init() {
-    const token = localStorage.getItem("qapela_token");
-    if (!token) { window.location.href = "qapela-login.html"; return; }
-
-    const me = await apiFetch("/auth/me");
-    if (!me.ok) {
-      localStorage.removeItem("qapela_token");
-      window.location.href = "qapela-login.html";
-      return;
-    }
-    if (me.data.status === "suspended" || me.data.status === "banned") {
-      alert("This account is " + me.data.status + ". Contact support for help.");
-      localStorage.removeItem("qapela_token");
-      window.location.href = "qapela-login.html";
-      return;
-    }
-
+    if (!localStorage.getItem("qapela_token")) { window.location.href = "qapela-login.html"; return; }
+    const m = await apiFetch("/auth/me");
+    if (!m.ok) { doSignOut(); return; }
+    me = m.data;
+    if (!me.accountActivated) { window.location.href = "qapela-activation.html?role=artist"; return; }
+    if (me.status === "suspended" || me.status === "banned") { alert("This account is " + me.status + ". Contact support for help."); doSignOut(); return; }
     document.getElementById("app").classList.remove("hidden");
+    if (me.roleWorker) { const a = document.getElementById("linkWorker"); a.href = "qapela-worker.html"; a.classList.remove("hidden"); }
+    if (me.roleBusiness) { const a = document.getElementById("linkBusiness"); a.href = "qapela-business.html"; a.classList.remove("hidden"); }
 
-    const settingsRes = await fetch(API_BASE + "/public/settings").then(r => r.json()).catch(() => ({}));
-    if (settingsRes.musicPlatformFeePct != null) {
-      document.getElementById("feeHint").textContent = `Platform takes ${settingsRes.musicPlatformFeePct}% — you keep the rest, credited straight to your wallet.`;
-    }
+    fetch(API_BASE + "/public/settings").then(r => r.json()).then(s => {
+      if (s.musicPlatformFeePct != null) document.getElementById("feeHint").textContent = "Platform takes " + s.musicPlatformFeePct + "% — you keep the rest, credited straight to your wallet.";
+    }).catch(() => {});
 
-    const profRes = await apiFetch("/musicians/profile/mine");
-    if (profRes.ok && profRes.data.name) {
-      document.getElementById("setupPrompt").classList.add("hidden");
-      document.getElementById("mainContent").classList.remove("hidden");
-      loadSongs();
-    } else {
-      document.getElementById("setupPrompt").classList.remove("hidden");
-    }
+    await loadProfile();
+    loadSongs();
+    loadNotifications();
   }
 
-  window.setUpMusician = async function () {
-    const name = document.getElementById("artistNameInput").value.trim();
-    const msgEl = document.getElementById("setupMsg");
-    if (!name) { msgEl.innerHTML = '<div class="msg err">Enter an artist name.</div>'; return; }
+  const GENRE_OPTIONS_LOADED = true;
+  async function loadProfile() {
+    const r = await apiFetch("/musicians/profile/mine");
+    profile = r.ok ? r.data : {};
+    const st = profile.stats || {};
+    const name = profile.name || "";
+    document.getElementById("stageName").textContent = name || "Your Studio";
+    document.getElementById("tagline").textContent = profile.tagline || (name ? "Add a tagline in your press kit." : "Pick your stage name to open the doors.");
+    document.getElementById("avatarInitial").textContent = name ? name.trim()[0].toUpperCase() : "♪";
+    const setMeter = (id, barId, v, max, text) => { document.getElementById(id).textContent = text != null ? text : v; document.getElementById(barId).style.width = Math.max(8, Math.min(100, (v / max) * 100)) + "%"; };
+    setMeter("mFollowers", "bFollowers", st.followers || 0, 100);
+    setMeter("mTracks", "bTracks", st.songs || 0, 10);
+    setMeter("mSales", "bSales", st.sales || 0, 50);
+    setMeter("mEarned", "bEarned", st.earned || 0, 50000, "₦" + Number(st.earned || 0).toLocaleString());
 
-    const { ok, data } = await apiFetch("/musicians/profile", { method: "POST", body: JSON.stringify({ artistName: name }) });
-    if (ok && data.success) {
-      document.getElementById("setupPrompt").classList.add("hidden");
-      document.getElementById("mainContent").classList.remove("hidden");
-      loadSongs();
-    } else {
-      msgEl.innerHTML = `<div class="msg err">${escapeHtml(data.message || "Could not save.")}</div>`;
-    }
+    // fill the press kit form
+    const set = (id, v) => { document.getElementById(id).value = v || ""; };
+    set("p-name", profile.name); set("p-tagline", profile.tagline); set("p-genre", profile.genre); set("p-stage", profile.careerStage);
+    set("p-city", profile.city); set("p-country", profile.country); set("p-bio", profile.bio);
+    set("p-instagram", profile.instagram ? "@" + profile.instagram : ""); set("p-tiktok", profile.tiktok ? "@" + profile.tiktok : "");
+    set("p-youtube", profile.youtube); set("p-streaming", profile.streamingLink); set("p-website", profile.website);
+    updatePreview();
+    if (!name) { document.getElementById("setupNote").textContent = "First things first: choose your stage name to open your studio."; showTab("profile"); }
+  }
+
+  function completeness() {
+    const g = id => document.getElementById(id).value.trim();
+    const checks = [g("p-name"), g("p-tagline"), g("p-genre"), g("p-stage"), g("p-city"), g("p-country"), g("p-bio").length >= 40 ? "x" : "", g("p-instagram") || g("p-tiktok") || g("p-youtube") || g("p-streaming") || g("p-website")];
+    return Math.round(checks.filter(Boolean).length / checks.length * 100);
+  }
+  window.updatePreview = function () {
+    const g = id => document.getElementById(id).value.trim();
+    const name = g("p-name");
+    document.getElementById("pvName").textContent = name || "Your name";
+    document.getElementById("pvInitial").textContent = name ? name[0].toUpperCase() : "♪";
+    document.getElementById("pvLine").textContent = [g("p-genre"), g("p-city")].filter(Boolean).join(" · ") || "Genre · City";
+    document.getElementById("pvTag").textContent = g("p-tagline");
+    document.getElementById("bioCount").textContent = g("p-bio").length;
+    const pct = completeness();
+    document.getElementById("pBar").style.width = pct + "%";
+    document.getElementById("pText").textContent = "Profile " + pct + "% complete" + (pct < 100 ? " — fuller profiles get followed more." : " — looking great!");
+  };
+
+  window.saveProfile = async function () {
+    const g = id => document.getElementById(id).value.trim();
+    if (g("p-name").length < 2) { say("profileMsg", false, "Your stage name is needed (at least 2 letters)."); return; }
+    const btn = document.getElementById("saveProfileBtn"); btn.disabled = true; btn.textContent = "Saving…";
+    const { ok, data } = await apiFetch("/musicians/profile", { method: "POST", body: JSON.stringify({
+      artistName: g("p-name"), tagline: g("p-tagline"), genre: g("p-genre"), careerStage: g("p-stage"), city: g("p-city"), country: g("p-country"), bio: g("p-bio"),
+      instagram: g("p-instagram"), tiktok: g("p-tiktok"), youtube: g("p-youtube"), streamingLink: g("p-streaming"), website: g("p-website") }) });
+    btn.disabled = false; btn.textContent = "Save press kit";
+    if (ok && data.success) { say("profileMsg", true, "Saved — you're live in Discover."); await loadProfile(); document.getElementById("setupNote").textContent = "This is what fans see when they find you in Discover. Complete profiles get followed more."; toast("Press kit saved"); }
+    else say("profileMsg", false, data.message || "Could not save.");
+  };
+
+  window.copyShare = async function () {
+    const url = location.origin + location.pathname.replace(/[^/]*$/, "") + "qapela-artists.html?artist=" + encodeURIComponent(me.uid);
+    try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch (e) { prompt("Copy your artist page link:", url); }
   };
 
   window.uploadSong = async function () {
-    const msgEl = document.getElementById("uploadMsg");
-    msgEl.innerHTML = "";
+    const msgEl = document.getElementById("uploadMsg"); msgEl.innerHTML = "";
+    if (!profile || !profile.name) { say("uploadMsg", false, "Set your stage name in the Press kit tab first."); return; }
     const title = document.getElementById("f-title").value.trim();
     const description = document.getElementById("f-desc").value.trim();
     const price = Math.floor(Number(document.getElementById("f-price").value));
     const releaseDateVal = document.getElementById("f-releasedate").value;
-    const fileInput = document.getElementById("f-audiofile");
-    const file = fileInput.files && fileInput.files[0];
+    const file = (document.getElementById("f-audiofile").files || [])[0];
+    if (!title || !price || price <= 0) { say("uploadMsg", false, "A title and a price above ₦0 are required."); return; }
+    if (!releaseDateVal) { say("uploadMsg", false, "Select the official release date."); return; }
+    if (file && file.size > 15 * 1024 * 1024) { say("uploadMsg", false, "Audio file must be 15MB or smaller."); return; }
 
-    if (!title || !price || price <= 0) { msgEl.innerHTML = '<div class="msg err">Title and a price above ₦0 are required.</div>'; return; }
-    if (!releaseDateVal) { msgEl.innerHTML = '<div class="msg err">Select the official release date.</div>'; return; }
-    if (file && file.size > 15 * 1024 * 1024) { msgEl.innerHTML = '<div class="msg err">Audio file must be 15MB or smaller.</div>'; return; }
-
-    const btn = document.getElementById("publishBtn");
-    btn.disabled = true;
-    btn.textContent = "Publishing…";
-
+    const btn = document.getElementById("publishBtn"); btn.disabled = true; btn.textContent = "Dropping…";
     const releaseDate = new Date(releaseDateVal + "T00:00:00Z").toISOString();
-    const { ok, data } = await apiFetch("/musicians/songs", {
-      method: "POST",
-      body: JSON.stringify({ title, description, price, releaseDate }),
-    });
-
-    if (!ok || !data.success) {
-      msgEl.innerHTML = `<div class="msg err">${escapeHtml(data.message || "Could not publish.")}</div>`;
-      btn.disabled = false;
-      btn.textContent = "Publish Track";
-      return;
-    }
+    const { ok, data } = await apiFetch("/musicians/songs", { method: "POST", body: JSON.stringify({ title, description, price, releaseDate }) });
+    if (!ok || !data.success) { say("uploadMsg", false, data.message || "Could not publish."); btn.disabled = false; btn.textContent = "Drop it 🎚️"; return; }
 
     if (file) {
-      try {
-        const bytes = await file.arrayBuffer();
-        const uploadRes = await fetch(API_BASE + "/musicians/songs/" + data.songId + "/file", {
-          method: "POST",
-          headers: { Authorization: "Bearer " + localStorage.getItem("qapela_token"), "x-mime-type": file.type || "audio/mpeg" },
-          body: bytes,
-        });
-        if (!uploadRes.ok) {
-          msgEl.innerHTML = '<div class="msg err">Listing was created, but the audio file failed to upload — try uploading it again from the track list below.</div>';
-        } else {
-          msgEl.innerHTML = '<div class="msg ok">Published — it\'s live on the marketplace now.</div>';
-        }
-      } catch (err) {
-        msgEl.innerHTML = '<div class="msg err">Listing was created, but the audio upload failed — try again from the track list below.</div>';
-      }
+      const up = await sendAudio(data.songId, file);
+      say("uploadMsg", up, up ? "It's live! Your followers are being alerted. 🔥" : "Listing created, but the audio failed to upload — add it from the Tracks tab.");
     } else {
-      msgEl.innerHTML = '<div class="msg ok">Listing created — remember to upload the audio file from the track list below.</div>';
+      say("uploadMsg", true, "Listing created — add the audio from the Tracks tab so it goes live and your followers get alerted.");
     }
+    ["f-title", "f-desc", "f-price", "f-releasedate", "f-audiofile"].forEach(id => document.getElementById(id).value = "");
+    btn.disabled = false; btn.textContent = "Drop it 🎚️";
+    loadSongs(); loadProfile();
+  };
 
-    ["f-title", "f-desc", "f-price", "f-releasedate"].forEach(id => document.getElementById(id).value = "");
-    fileInput.value = "";
-    btn.disabled = false;
-    btn.textContent = "Publish Track";
-    loadSongs();
+  async function sendAudio(songId, file) {
+    try {
+      const res = await fetch(API_BASE + "/musicians/songs/" + songId + "/file", { method: "POST", headers: { Authorization: "Bearer " + localStorage.getItem("qapela_token"), "x-mime-type": file.type || "audio/mpeg" }, body: await file.arrayBuffer() });
+      return res.ok;
+    } catch (e) { return false; }
+  }
+  window.pickAudio = function (songId) {
+    const input = document.createElement("input"); input.type = "file"; input.accept = "audio/*";
+    input.onchange = async () => {
+      const f = input.files && input.files[0]; if (!f) return;
+      if (f.size > 15 * 1024 * 1024) { toast("Audio must be 15MB or smaller"); return; }
+      toast("Uploading…"); const ok = await sendAudio(songId, f); toast(ok ? "Audio uploaded 🔥" : "Upload failed — try again"); loadSongs();
+    };
+    input.click();
   };
 
   async function loadSongs() {
     const { ok, data } = await apiFetch("/musicians/songs/mine");
-    const listEl = document.getElementById("songsList");
-    if (!ok) { listEl.innerHTML = `<div class="empty">Could not load: ${escapeHtml(data.message || "")}</div>`; return; }
-
+    const el = document.getElementById("songsList");
+    if (!ok) { el.innerHTML = '<div class="empty">Could not load: ' + escapeHtml(data.message || "") + "</div>"; return; }
     mySongs = data.songs || [];
-    document.getElementById("statSongs").textContent = mySongs.length;
-    document.getElementById("statSales").textContent = mySongs.reduce((s, r) => s + (r.totalSales || 0), 0);
-    document.getElementById("statRevenue").textContent = "₦" + mySongs.reduce((s, r) => s + (r.totalRevenue || 0), 0).toLocaleString();
-
-    if (mySongs.length === 0) {
-      listEl.innerHTML = '<div class="empty">No tracks yet — publish your first one above.</div>';
-      return;
-    }
-
-    listEl.innerHTML = mySongs.map(s => `
-      <div class="song-row">
-        <div class="song-top">
-          <div>
-            <h4>${escapeHtml(s.title)}</h4>
-            <div class="song-meta">₦${s.price.toLocaleString()} to unlock · releases ${new Date(s.releaseDate).toLocaleDateString()}</div>
-          </div>
-          <span class="badge ${s.status}">${escapeHtml(s.status)}</span>
-        </div>
-        <div class="song-stats">
-          <div><strong>${s.totalSales || 0}</strong>sales</div>
-          <div><strong>₦${(s.totalRevenue || 0).toLocaleString()}</strong>gross</div>
-        </div>
-        ${s.status === 'active' ? `<button class="toggle-btn" onclick="unpublishSong('${s.id}')">Unpublish Early</button>` : ''}
-      </div>
-    `).join("");
+    const live = mySongs.some(s => s.status === "active");
+    document.getElementById("onair").classList.toggle("live", live);
+    document.getElementById("onairText").textContent = live ? "ON AIR" : "OFF AIR";
+    document.getElementById("eq").classList.toggle("off", !live);
+    if (!mySongs.length) { el.innerHTML = '<div class="empty">No tracks yet — head to Drop and release your first one.</div>'; return; }
+    el.innerHTML = mySongs.map(s => '<div class="track"><div class="track-top"><div><h4>' + escapeHtml(s.title) + '</h4><div class="meta">₦' + Number(s.price).toLocaleString() + " to unlock · releases " + new Date(s.releaseDate).toLocaleDateString() +
+      '</div></div><span class="badge ' + escapeHtml(s.status) + '">' + escapeHtml(s.status) + '</span></div><div class="track-stats"><div><strong>' + (s.totalSales || 0) + '</strong>sales</div><div><strong>₦' + Number(s.totalRevenue || 0).toLocaleString() + '</strong>gross</div></div>' +
+      (s.status === "active" ? '<div class="track-actions"><button class="mini" onclick="pickAudio(\'' + escapeHtml(s.id) + '\')">Upload / replace audio</button><button class="mini danger" onclick="unpublishSong(\'' + escapeHtml(s.id) + '\')">Unpublish early</button></div>' : "") + "</div>").join("");
   }
 
   window.unpublishSong = async function (songId) {
-    if (!confirm("Unpublish this track? It will stop appearing on the marketplace and the audio file will be removed. This can't be undone.")) return;
-    const { ok, data } = await apiFetch(`/musicians/songs/${songId}/remove`, { method: "POST" });
-    if (ok && data.success) loadSongs();
-    else alert("Could not unpublish: " + (data.message || ""));
+    if (!confirm("Unpublish this track? It stops appearing on the marketplace and the audio file is removed. This can't be undone.")) return;
+    const { ok, data } = await apiFetch("/musicians/songs/" + songId + "/remove", { method: "POST" });
+    if (ok && data.success) { loadSongs(); loadProfile(); } else alert("Could not unpublish: " + (data.message || ""));
   };
+
+  async function loadNotifications() {
+    const { data } = await apiFetch("/notifications/mine");
+    const count = data.unreadCount || 0, dot = document.getElementById("notifCount");
+    if (count > 0) { dot.style.display = "flex"; dot.textContent = count > 9 ? "9+" : count; } else dot.style.display = "none";
+    const list = document.getElementById("notifList"), items = data.notifications || [];
+    list.innerHTML = items.length ? items.map(n => '<div class="nrow ' + (n.read ? "" : "unread") + '"><b>' + escapeHtml(n.title || "") + "</b><small>" + escapeHtml(n.message || "") + "</small></div>").join("") : '<div class="empty" style="padding:18px">No alerts yet.</div>';
+  }
+  window.toggleNotifPanel = function () { const p = document.getElementById("notifPanel"); p.style.display = p.style.display === "block" ? "none" : "block"; };
+  window.markAllNotifsRead = async function () { await apiFetch("/notifications/mark-read", { method: "POST", body: JSON.stringify({}) }); loadNotifications(); };
 
   init();
 </script>
-
+<script src="assets/qapela-help.js" defer></script>
+<script src="assets/qapela-verify.js" defer></script>
 </body>
 </html>

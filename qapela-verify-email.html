@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- qapela-og -->
+<meta name="description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="theme-color" content="#0E2A6B">
+<link rel="icon" type="image/png" href="assets/qapela-logo-icon.png">
+<link rel="apple-touch-icon" href="assets/qapela-logo-icon.png">
+<meta property="og:site_name" content="Qapela">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Qapela — Verify your email">
+<meta property="og:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta property="og:url" content="https://ejitechx.github.io/qapela-worker/qapela-verify-email.html">
+<meta property="og:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Qapela — Work. Earn. Grow.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Qapela — Verify your email">
+<meta name="twitter:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="twitter:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+
+<script src="assets/qapela-session.js"></script>
+<title>Qapela — Verify your email</title>
+<style>
+  :root{--primary:#0B5CFF; --secondary:#0E2A6B; --bg:#F8FAFF; --line:#E6EAF2; --text:#1B2559; --muted:#6B7590;}
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; max-width:420px; margin-left:auto; margin-right:auto; min-height:100vh;}
+  header{background:var(--secondary); padding:16px 18px; border-radius:0 0 20px 20px;} header img{height:30px; display:block;}
+  main{padding:36px 24px; text-align:center;}
+  .badge{width:72px; height:72px; border-radius:50%; margin:0 auto 18px; display:flex; align-items:center; justify-content:center; font-size:34px; background:#EEF2FF;}
+  .badge.ok{background:rgba(22,163,74,.12);} .badge.bad{background:rgba(220,38,38,.1);}
+  h1{font-size:21px; margin:0 0 8px;} p{color:var(--muted); font-size:14px; line-height:1.6; margin:0 0 22px;}
+  .btn{display:inline-block; background:var(--primary); color:#fff; text-decoration:none; font-weight:700; padding:13px 26px; border-radius:12px; font-size:14.5px;}
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+<header><img src="assets/qapela-wordmark.png" alt="Qapela"></header>
+<main>
+  <div id="working"><div class="badge">⏳</div><h1>Verifying your email…</h1><p>One moment.</p></div>
+  <div id="done" class="hidden"><div class="badge ok">✅</div><h1>Email verified</h1><p>Thank you! Your email address is confirmed, and withdrawals are unlocked on your account.</p><a class="btn" href="index.html">Open Qapela</a></div>
+  <div id="failed" class="hidden"><div class="badge bad">⚠️</div><h1>We couldn't verify that link</h1><p id="failMsg"></p><a class="btn" href="qapela-account.html">Go to Account settings</a></div>
+</main>
+<script>
+  const API_BASE = "https://capella-api-5c6c.drthankgod08.workers.dev";
+  (async function () {
+    const token = new URLSearchParams(location.search).get("token");
+    const show = id => { ["working", "done", "failed"].forEach(x => document.getElementById(x).classList.toggle("hidden", x !== id)); };
+    if (!token) { document.getElementById("failMsg").textContent = "This link is missing its code. Open the link from your email again."; show("failed"); return; }
+    try {
+      const res = await fetch(API_BASE + "/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        try { const p = JSON.parse(localStorage.getItem("qapela_profile") || "null"); if (p) { p.emailVerified = true; localStorage.setItem("qapela_profile", JSON.stringify(p)); } } catch (e) {}
+        show("done");
+      } else { document.getElementById("failMsg").textContent = data.message || "This link isn't valid any more."; show("failed"); }
+    } catch (e) { document.getElementById("failMsg").textContent = "We couldn't reach the server. Check your connection and try the link again."; show("failed"); }
+  })();
+</script>
+</body>
+</html>

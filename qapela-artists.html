@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<!-- qapela-og -->
+<meta name="description" content="Discover artists on Qapela, follow them, and get an alert the moment they drop a new track.">
+<meta name="theme-color" content="#0E2A6B">
+<link rel="icon" type="image/png" href="assets/qapela-logo-icon.png">
+<link rel="apple-touch-icon" href="assets/qapela-logo-icon.png">
+<meta property="og:site_name" content="Qapela">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Qapela — Artists">
+<meta property="og:description" content="Discover artists on Qapela, follow them, and get an alert the moment they drop a new track.">
+<meta property="og:url" content="https://ejitechx.github.io/qapela-worker/qapela-artists.html">
+<meta property="og:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Qapela — Work. Earn. Grow.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Qapela — Artists">
+<meta name="twitter:description" content="Discover artists on Qapela, follow them, and get an alert the moment they drop a new track.">
+<meta name="twitter:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+
+<script src="assets/qapela-session.js"></script>
+<title>Qapela — Artists</title>
+<style>
+  :root{--primary:#0B5CFF; --secondary:#0E2A6B; --bg:#F8FAFF; --card:#fff; --line:#E6EAF2; --text:#1B2559; --muted:#6B7590; --pink:#EC4899; --green:#16A34A;}
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; max-width:420px; margin-left:auto; margin-right:auto; min-height:100vh; padding-bottom:30px;}
+  .hidden{display:none !important;}
+  header{background:linear-gradient(135deg,#0E2A6B,#2A0F5C); color:#fff; padding:16px 18px 20px; border-radius:0 0 22px 22px;}
+  .row{display:flex; align-items:center; gap:10px;}
+  .back{font-size:19px; cursor:pointer;}
+  header h1{margin:0; font-size:19px;} header p{margin:8px 0 0; font-size:12.5px; color:#C7CCF0; line-height:1.5;}
+  .search{margin:-18px 16px 0; position:relative;}
+  .search input{width:100%; padding:14px 16px; border-radius:14px; border:1px solid var(--line); font-size:14.5px; background:#fff; box-shadow:0 6px 20px rgba(14,42,107,.12); outline:none;}
+  .chips{display:flex; gap:8px; overflow-x:auto; padding:14px 16px 4px; scrollbar-width:none;}
+  .chip{white-space:nowrap; padding:8px 14px; border-radius:20px; background:#fff; border:1px solid var(--line); font-size:12.5px; font-weight:700; color:var(--muted); cursor:pointer;}
+  .chip.active{background:var(--primary); border-color:var(--primary); color:#fff;}
+  .tabs{display:flex; gap:6px; padding:8px 16px 0;} .tabs .chip{flex:1; text-align:center;}
+  #list{padding:12px 16px;}
+  .artist{display:flex; gap:12px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px; margin-bottom:10px; cursor:pointer;}
+  .av{width:54px; height:54px; border-radius:50%; background:conic-gradient(from 200deg,#3B82F6,#EC4899,#F59E0B,#3B82F6); padding:2.5px; flex-shrink:0;}
+  .av div{width:100%; height:100%; border-radius:50%; background:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:20px; color:var(--secondary);}
+  .info{flex:1; min-width:0;} .info b{display:block; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .info small{display:block; color:var(--muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .info .nums{font-size:11.5px; color:var(--muted); margin-top:4px;}
+  .follow{border:none; border-radius:20px; padding:9px 15px; font-size:12.5px; font-weight:800; cursor:pointer; background:var(--primary); color:#fff; flex-shrink:0;}
+  .follow.on{background:#EEF2FF; color:var(--primary);}
+  .empty{text-align:center; color:var(--muted); padding:36px 12px; font-size:13.5px; line-height:1.6;}
+  /* profile sheet */
+  .shade{position:fixed; inset:0; background:rgba(8,8,20,.55); z-index:40;}
+  .sheet{position:fixed; left:50%; transform:translateX(-50%); bottom:0; width:100%; max-width:420px; max-height:88vh; overflow-y:auto; background:#fff; border-radius:22px 22px 0 0; z-index:41; padding:18px 18px 28px;}
+  .sheet .grab{width:44px; height:4px; background:var(--line); border-radius:2px; margin:0 auto 14px;}
+  .sheet h2{margin:0; font-size:20px;} .sheet .tag{color:var(--muted); font-size:13px; margin:4px 0 0;}
+  .sheet .bio{font-size:13.5px; line-height:1.6; margin:14px 0; white-space:pre-wrap;}
+  .links{display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 14px;} .links a{padding:8px 13px; border-radius:20px; background:#EEF2FF; color:var(--primary); font-size:12.5px; font-weight:700; text-decoration:none;}
+  .song{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--line);} .song b{font-size:14px;} .song small{display:block; color:var(--muted); font-size:11.5px; margin-top:2px;}
+  .song a{background:var(--secondary); color:#fff; text-decoration:none; padding:8px 13px; border-radius:20px; font-size:12px; font-weight:700; flex-shrink:0;}
+  .btnrow{display:flex; gap:10px; margin-top:6px;} .btnrow .follow{flex:1; padding:12px; font-size:14px;} .btnrow .share{flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:20px; padding:12px 16px; font-weight:700; cursor:pointer; color:var(--text);}
+  #toast{position:fixed; bottom:30px; left:50%; transform:translateX(-50%) translateY(20px); background:#1B2559; color:#fff; padding:11px 16px; border-radius:12px; font-size:13px; opacity:0; transition:.25s; z-index:60; pointer-events:none;} #toast.show{opacity:1; transform:translateX(-50%);}
+</style>
+</head>
+<body>
+<div id="app" class="hidden">
+  <header>
+    <div class="row"><span class="back" onclick="goBack()">←</span><h1>🎤 Artists</h1></div>
+    <p>Find artists you love and follow them. You'll get an alert in your notifications the moment they drop a new track.</p>
+  </header>
+  <div class="search"><input id="q" type="search" placeholder="Search artists, genres or cities" oninput="debounceSearch()"></div>
+  <div class="tabs"><div class="chip active" id="tabAll" onclick="setView('all')">Discover</div><div class="chip" id="tabFollowing" onclick="setView('following')">Following</div></div>
+  <div class="chips" id="genreChips"></div>
+  <div id="list"><div class="empty">Loading…</div></div>
+</div>
+<div id="sheetHost"></div>
+<div id="toast"></div>
+
+<script>
+  const API_BASE = "https://capella-api-5c6c.drthankgod08.workers.dev";
+  let view = "all", genre = "", timer = null, artists = [], me = null;
+
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(API_BASE + path, { ...options, headers: { "Content-Type": "application/json", Authorization: "Bearer " + localStorage.getItem("qapela_token"), ...(options.headers || {}) } });
+    const renewed = res.headers.get("X-Renewed-Token"); if (renewed) localStorage.setItem("qapela_token", renewed);
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  }
+  function esc(str) { return String(str == null ? "" : str).replace(/[&<>"']/g, s => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s])); }
+  function toast(m) { const t = document.getElementById("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); }
+  window.goBack = function () { if (history.length > 1) history.back(); else window.location.href = "index.html"; };
+  const initial = n => (String(n || "?").trim()[0] || "?").toUpperCase();
+
+  async function init() {
+    if (!localStorage.getItem("qapela_token")) { window.location.href = "qapela-login.html"; return; }
+    const m = await apiFetch("/auth/me");
+    if (!m.ok) { window.location.href = "qapela-login.html"; return; }
+    me = m.data;
+    document.getElementById("app").classList.remove("hidden");
+    await load();
+    const deep = new URLSearchParams(location.search).get("artist");
+    if (deep) openArtist(deep);
+  }
+
+  window.debounceSearch = function () { clearTimeout(timer); timer = setTimeout(load, 300); };
+  window.setView = function (v) {
+    view = v;
+    document.getElementById("tabAll").classList.toggle("active", v === "all");
+    document.getElementById("tabFollowing").classList.toggle("active", v === "following");
+    document.getElementById("genreChips").classList.toggle("hidden", v === "following");
+    document.getElementById("q").parentElement.classList.toggle("hidden", v === "following");
+    load();
+  };
+
+  async function load() {
+    const list = document.getElementById("list");
+    let r;
+    if (view === "following") r = await apiFetch("/music/following");
+    else r = await apiFetch("/music/artists?q=" + encodeURIComponent(document.getElementById("q").value.trim()) + "&genre=" + encodeURIComponent(genre));
+    if (!r.ok) { list.innerHTML = '<div class="empty">' + esc(r.data.message || "Could not load artists.") + "</div>"; return; }
+    artists = r.data.artists || [];
+    if (view === "all") renderChips(r.data.genres || []);
+    if (!artists.length) {
+      list.innerHTML = view === "following"
+        ? '<div class="empty">You\'re not following anyone yet.<br>Follow artists to get an alert when they drop a track.</div>'
+        : '<div class="empty">No artists found' + (document.getElementById("q").value || genre ? " for that search" : " yet — check back soon") + ".</div>";
+      return;
+    }
+    list.innerHTML = artists.map(cardHtml).join("");
+  }
+
+  function renderChips(genres) {
+    const el = document.getElementById("genreChips");
+    el.innerHTML = '<div class="chip ' + (genre === "" ? "active" : "") + '" onclick="setGenre(\'\')">All</div>' +
+      genres.map(g => '<div class="chip ' + (genre === g ? "active" : "") + '" data-g="' + esc(g) + '" onclick="setGenre(this.dataset.g)">' + esc(g) + "</div>").join("");
+  }
+  window.setGenre = function (g) { genre = g; load(); };
+
+  function cardHtml(a) {
+    const place = [a.genre, a.city].filter(Boolean).join(" · ");
+    return '<div class="artist" onclick="openArtist(\'' + esc(a.uid) + '\')"><div class="av"><div>' + esc(initial(a.name)) + '</div></div>' +
+      '<div class="info"><b>' + esc(a.name) + "</b><small>" + esc(a.tagline || place || "New artist") + '</small><div class="nums">' + (a.followers || 0) + " followers · " + (a.songs || 0) + " track" + (a.songs === 1 ? "" : "s") + "</div></div>" +
+      (a.uid === me.uid ? "" : '<button class="follow ' + (a.following ? "on" : "") + '" onclick="event.stopPropagation();toggleFollow(\'' + esc(a.uid) + '\', this)">' + (a.following ? "Following" : "Follow") + "</button>") + "</div>";
+  }
+
+  window.toggleFollow = async function (id, btn) {
+    const a = artists.find(x => x.uid === id); const want = !(a && a.following);
+    if (btn) btn.disabled = true;
+    const r = await apiFetch("/music/artists/" + encodeURIComponent(id) + (want ? "/follow" : "/unfollow"), { method: "POST", body: "{}" });
+    if (btn) btn.disabled = false;
+    if (!r.ok || !r.data.success) { toast(r.data.message || "Could not update"); return false; }
+    if (a) { a.following = want; a.followers = r.data.followers; }
+    toast(want ? "Following — you'll be alerted when they drop a track 🎵" : "Unfollowed");
+    if (view === "following" && !want) load(); else if (document.getElementById("list").children.length) document.getElementById("list").innerHTML = artists.map(cardHtml).join("");
+    return want;
+  };
+
+  window.openArtist = async function (id) {
+    const r = await apiFetch("/music/artists/" + encodeURIComponent(id));
+    if (!r.ok) { toast(r.data.message || "Artist not found"); return; }
+    const a = r.data.artist, songs = r.data.songs || [];
+    const link = (label, href) => href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + label + "</a>" : "";
+    const links = link("Instagram", a.instagram && "https://instagram.com/" + a.instagram) + link("TikTok", a.tiktok && "https://tiktok.com/@" + a.tiktok) + link("YouTube", a.youtube) + link("Listen", a.streamingLink) + link("Website", a.website);
+    const place = [a.genre, a.careerStage, [a.city, a.country].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+    document.getElementById("sheetHost").innerHTML = '<div class="shade" onclick="closeSheet()"></div><div class="sheet"><div class="grab"></div>' +
+      '<div class="row" style="gap:14px;"><div class="av" style="width:64px;height:64px;"><div style="font-size:24px;">' + esc(initial(a.name)) + '</div></div><div><h2>' + esc(a.name) + '</h2><div class="tag">' + esc(place) + "</div></div></div>" +
+      (a.tagline ? '<div style="margin-top:12px;font-weight:700;font-size:14px;">' + esc(a.tagline) + "</div>" : "") +
+      '<div class="tag" style="margin-top:8px;">' + (a.followers || 0) + " followers · " + songs.length + " track" + (songs.length === 1 ? "" : "s") + " on sale</div>" +
+      (a.bio ? '<div class="bio">' + esc(a.bio) + "</div>" : "") + (links ? '<div class="links">' + links + "</div>" : "") +
+      '<div class="btnrow">' + (a.isMe ? "" : '<button class="follow ' + (a.following ? "on" : "") + '" id="sheetFollow" onclick="sheetFollow(\'' + esc(a.uid) + '\')">' + (a.following ? "Following" : "Follow") + "</button>") +
+      '<button class="share" onclick="shareArtist(\'' + esc(a.uid) + '\')">Share</button></div>' +
+      '<h3 style="margin:20px 0 4px;font-size:15px;">Unreleased tracks</h3>' +
+      (songs.length ? songs.map(s => '<div class="song"><div><b>' + esc(s.title) + "</b><small>₦" + Number(s.price).toLocaleString() + " · out " + new Date(s.releaseDate).toLocaleDateString() + '</small></div><a href="qapela-music-marketplace.html">Unlock</a></div>').join("") : '<div class="empty" style="padding:16px 0;">Nothing on sale right now.</div>') + "</div>";
+    window._sheetArtist = a;
+  };
+  window.closeSheet = function () { document.getElementById("sheetHost").innerHTML = ""; };
+  window.sheetFollow = async function (id) {
+    let a = artists.find(x => x.uid === id);
+    if (!a) { a = Object.assign({}, window._sheetArtist); artists.push(a); }
+    const want = await toggleFollow(id, document.getElementById("sheetFollow"));
+    const b = document.getElementById("sheetFollow"); if (b) { b.textContent = want ? "Following" : "Follow"; b.classList.toggle("on", !!want); }
+  };
+  window.shareArtist = async function (id) {
+    const url = location.origin + location.pathname + "?artist=" + encodeURIComponent(id);
+    try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch (e) { prompt("Copy this link:", url); }
+  };
+
+  init();
+</script>
+<script src="assets/qapela-help.js" defer></script>
+<script src="assets/qapela-verify.js" defer></script>
+</body>
+</html>

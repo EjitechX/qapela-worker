@@ -3,6 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<!-- qapela-og -->
+<meta name="description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="theme-color" content="#0E2A6B">
+<link rel="icon" type="image/png" href="assets/qapela-logo-icon.png">
+<link rel="apple-touch-icon" href="assets/qapela-logo-icon.png">
+<meta property="og:site_name" content="Qapela">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Qapela — Activate Account">
+<meta property="og:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta property="og:url" content="https://ejitechx.github.io/qapela-worker/qapela-activation.html">
+<meta property="og:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Qapela — Work. Earn. Grow.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Qapela — Activate Account">
+<meta name="twitter:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="twitter:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+
+<script src="assets/qapela-session.js"></script>
 <title>Qapela — Activate Account</title>
 <script src="https://js.paystack.co/v1/inline.js"></script>
 <style>
@@ -145,9 +166,10 @@
         <div class="state-box">
           <div class="state-icon success"><svg class="ic"><use href="#i-check"/></svg></div>
           <h2>You're activated</h2>
-          <p>Your account is active. You can use both Worker and Business features without paying another activation fee.</p>
+          <p>Your account is active. You can use Worker, Business and Artist features without paying another activation fee.</p>
           <button class="btn" onclick="location.href='qapela-worker.html'">Go to Worker Dashboard</button>
           <button class="btn" style="margin-top:10px;background:var(--secondary);" onclick="location.href='qapela-business.html'">Go to Business Dashboard</button>
+          ${userData.roleMusician ? '<button class="btn" style="margin-top:10px;background:#2A0F5C;" onclick="location.href=\'qapela-musician.html\'">Go to Artist Studio</button>' : ''}
         </div>
       `;
       return;
@@ -157,7 +179,7 @@
       <div class="fee-card">
         <div class="role-tag">One-time account activation</div>
         <div class="amount">₦${ACTIVATION_FEE.toLocaleString()}.00</div>
-        <div class="sub">Pay once. Use both Worker and Business modes.</div>
+        <div class="sub">Pay once. Use Worker, Business and Artist modes.</div>
       </div>
       <div class="benefits">
         <h2>What activation unlocks</h2>
@@ -240,5 +262,6 @@
   if (token) init();
 </script>
 
+<script src="assets/qapela-help.js" defer></script>
 </body>
 </html>

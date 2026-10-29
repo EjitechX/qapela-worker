@@ -3,6 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<!-- qapela-og -->
+<meta name="description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="theme-color" content="#0E2A6B">
+<link rel="icon" type="image/png" href="assets/qapela-logo-icon.png">
+<link rel="apple-touch-icon" href="assets/qapela-logo-icon.png">
+<meta property="og:site_name" content="Qapela">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Qapela — Work. Earn. Grow.">
+<meta property="og:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta property="og:url" content="https://ejitechx.github.io/qapela-worker/">
+<meta property="og:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Qapela — Work. Earn. Grow.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Qapela — Work. Earn. Grow.">
+<meta name="twitter:description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
+<meta name="twitter:image" content="https://ejitechx.github.io/qapela-worker/assets/qapela-share.jpg">
+
+<script src="assets/qapela-session.js"></script>
 <title>Qapela</title>
 <style>
   :root{ --primary:#0B5CFF; --secondary:#0E2A6B; --accent:#F5B301; }
@@ -43,12 +64,13 @@
         const res = await fetch(API_BASE + "/auth/me", { headers: { Authorization: "Bearer " + token } });
         if (res.ok) {
           const profile = await res.json();
+          const artistOnly = profile.roleMusician && !profile.roleWorker && !profile.roleBusiness;
           if (!profile.accountActivated) {
-            const role = profile.roleBusiness && !profile.roleWorker ? "business" : "worker";
+            const role = artistOnly ? "artist" : profile.roleBusiness && !profile.roleWorker ? "business" : "worker";
             window.location.href = "qapela-activation.html?role=" + role;
             return;
           }
-          window.location.href = (profile.roleBusiness && !profile.roleWorker) ? "qapela-business.html" : "qapela-worker.html";
+          window.location.href = artistOnly ? "qapela-musician.html" : (profile.roleBusiness && !profile.roleWorker) ? "qapela-business.html" : "qapela-worker.html";
           return;
         }
       } catch (err) { /* fall through to onboarding/login below */ }
