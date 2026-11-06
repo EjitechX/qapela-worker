@@ -7,7 +7,7 @@
 <meta name="description" content="Earn from simple online tasks, launch campaigns for your business, or release and sell your music. Work. Earn. Grow.">
 <meta name="theme-color" content="#0E2A6B">
 <link rel="icon" type="image/png" href="assets/qapela-logo-icon.png">
-<link rel="apple-touch-icon" href="assets/qapela-logo-icon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta property="og:site_name" content="Qapela">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Qapela — Verify your email">
@@ -37,6 +37,12 @@
   .btn{display:inline-block; background:var(--primary); color:#fff; text-decoration:none; font-weight:700; padding:13px 26px; border-radius:12px; font-size:14.5px;}
   .hidden{display:none;}
 </style>
+<!-- qapela-pwa -->
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Qapela">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
 <body>
 <header><img src="assets/qapela-wordmark.png" alt="Qapela"></header>
@@ -61,5 +67,6 @@
     } catch (e) { document.getElementById("failMsg").textContent = "We couldn't reach the server. Check your connection and try the link again."; show("failed"); }
   })();
 </script>
+<script src="assets/qapela-pwa.js"></script>
 </body>
 </html>

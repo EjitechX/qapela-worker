@@ -171,3 +171,8 @@ Signup has a third option, **Artist**. Artists pay the same one-time activation 
 Every page has Open Graph / Twitter tags in its `<head>` so that when a Qapela link is shared (WhatsApp, Telegram, Facebook, X…), it shows the Qapela logo card (`assets/qapela-share.jpg`, 1200×630), a title and a one-line description. Pages also have a favicon / home-screen icon.
 - The preview image and page URLs in those tags are absolute and currently point to `https://ejitechx.github.io/qapela-worker/`. **If the site moves to a custom domain, replace that address in all pages** (search the pages for `ejitechx.github.io/qapela-worker`) and in `SITE_BASE` in `worker.js`.
 - Chat apps remember previews. To see a change on a link you shared before, share it with something extra on the end, for example `?v=2`.
+
+## PWA (installable app)
+
+Qapela is now an installable app (PWA): `manifest.json`, `sw.js`, `offline.html`, `icons/` and `assets/qapela-pwa.js`.
+Every page links them. After each site deploy, bump `VERSION` in `sw.js` so devices refresh.

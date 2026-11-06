@@ -7,7 +7,7 @@
 <meta name="description" content="Discover artists on Qapela, follow them, and get an alert the moment they drop a new track.">
 <meta name="theme-color" content="#0E2A6B">
 <link rel="icon" type="image/png" href="assets/qapela-logo-icon.png">
-<link rel="apple-touch-icon" href="assets/qapela-logo-icon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta property="og:site_name" content="Qapela">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Qapela — Artists">
@@ -62,6 +62,12 @@
   .btnrow{display:flex; gap:10px; margin-top:6px;} .btnrow .follow{flex:1; padding:12px; font-size:14px;} .btnrow .share{flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:20px; padding:12px 16px; font-weight:700; cursor:pointer; color:var(--text);}
   #toast{position:fixed; bottom:30px; left:50%; transform:translateX(-50%) translateY(20px); background:#1B2559; color:#fff; padding:11px 16px; border-radius:12px; font-size:13px; opacity:0; transition:.25s; z-index:60; pointer-events:none;} #toast.show{opacity:1; transform:translateX(-50%);}
 </style>
+<!-- qapela-pwa -->
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Qapela">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
 <body>
 <div id="app" class="hidden">
@@ -190,5 +196,6 @@
 </script>
 <script src="assets/qapela-help.js" defer></script>
 <script src="assets/qapela-verify.js" defer></script>
+<script src="assets/qapela-pwa.js"></script>
 </body>
 </html>
